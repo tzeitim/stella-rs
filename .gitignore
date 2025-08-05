@@ -25,3 +25,5 @@ target
 
 /target
 Cargo.lock
+stellars/__pycache__
+stellars/stellars.abi3.so
