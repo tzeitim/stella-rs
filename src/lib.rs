@@ -11,7 +11,7 @@ fn version() -> PyResult<String> {
 }
 
 #[pymodule]
-fn stellars(_py: Python, m: &PyModule) -> PyResult<()> {
+fn stellars(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hello_stella, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     Ok(())
