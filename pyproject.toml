@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0", "polars>=1.25,!=1.26.*"]
+build-backend = "maturin"
+
+[project]
+name = "stella-rs"
+version = "0.1.0"
+description = "High-performance phylogenetic analysis extensions for Cassiopeia"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Pedro Olivares Chauvet", email = "pedro.olivares@weizmann.ac.il" }
+]
+keywords = ["phylogenetics", "lineage-tracing", "cassiopeia", "bioinformatics"]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Bioinformatics",
+    ]
+

@@ -1,0 +1,30 @@
+[package]
+name = "stella-rs"
+version = "0.1.0"
+authors = [
+  "Pedro Olivares Chauvet <pedro.olivares@weizmann.ac.il>", 
+]
+edition = "2018"
+
+[package.metadata.maturin]
+name = "stella-rs._internal"
+
+[lib]
+name = "stella_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+phylo = "2.0.1"
+pyo3 = { version = "0.20", features = ["extension-module"] }
+rand = "0.8"
+polars = { version = "0.35", optional = true }
+pyo3-polars = { version = "0.10", optional = true }
+
+[features]
+default = ["polars"]
+polars = ["dep:polars", "dep:pyo3-polars", "pyo3-polars/derive"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
