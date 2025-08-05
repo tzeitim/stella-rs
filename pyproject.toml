@@ -3,7 +3,7 @@ requires = ["maturin>=1.4,<2.0", "polars>=1.25,!=1.26.*"]
 build-backend = "maturin"
 
 [project]
-name = "stella-rs"
+name = "stellars"
 version = "0.1.0"
 description = "High-performance phylogenetic analysis extensions for Cassiopeia"
 readme = "README.md"

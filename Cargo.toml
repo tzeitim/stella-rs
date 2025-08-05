@@ -7,10 +7,10 @@ authors = [
 edition = "2018"
 
 [package.metadata.maturin]
-name = "stella-rs._internal"
+name = "stellars"
 
 [lib]
-name = "stella_rs"
+name = "stellars"
 crate-type = ["cdylib"]
 
 [dependencies]
