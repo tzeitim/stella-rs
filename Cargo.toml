@@ -21,6 +21,7 @@ rayon = "1.8"
 polars = "0.43.1"
 polars-core = { version = "0.43.1", features = ["dtype-array"], default-features = false }
 pyo3-polars = { version = "0.17.0", features = ["derive", "dtype-struct", "dtype-decimal", "dtype-array"] }
+fxhash = "0.2"
 
 [features]
 default = []
