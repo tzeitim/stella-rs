@@ -7,11 +7,13 @@ mod fast_triplets;
 mod ultra_fast_triplets;
 mod parallel_triplets;
 mod optimized_triplets;
+mod phs;
 use triplets::triplets_correct_impl;
 use fast_triplets::fast_triplets_correct;
 use ultra_fast_triplets::ultra_fast_triplets_correct;
 use parallel_triplets::parallel_triplets_correct;
 use optimized_triplets::optimized_triplets_correct;
+use phs::optimized_phs;
 
 /// Python wrapper for triplets_correct function
 #[pyfunction]
@@ -284,6 +286,56 @@ fn triplets_correct_optimized(
     Ok(py_result.into())
 }
 
+/// Optimized PHS (Pairwise Homoplasy Score) calculation
+#[pyfunction]
+#[pyo3(signature = (
+    tree_newick, 
+    character_matrix, 
+    internal_character_states, 
+    mutation_rate=None, 
+    collision_probability=None,
+    missing_state=-1,
+    unedited_state=0,
+    max_threads=None
+))]
+fn phs_optimized(
+    py: Python,
+    tree_newick: &str,
+    character_matrix: Vec<Vec<i32>>,
+    internal_character_states: std::collections::HashMap<String, Vec<i32>>,
+    mutation_rate: Option<f64>,
+    collision_probability: Option<f64>,
+    missing_state: i32,
+    unedited_state: i32,
+    max_threads: Option<usize>,
+) -> PyResult<PyObject> {
+    // Parse tree from Newick string
+    let mut tree = PhyloTree::from_newick(tree_newick.as_bytes())
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Failed to parse tree: {:?}", e)))?;
+    
+    // Calculate PHS using optimized implementation
+    let result = optimized_phs(
+        &mut tree,
+        character_matrix,
+        internal_character_states,
+        mutation_rate,
+        collision_probability,
+        missing_state,
+        unedited_state,
+        max_threads,
+    );
+    
+    // Convert result to Python dictionary
+    let py_result = PyDict::new_bound(py);
+    py_result.set_item("phs_score", result.phs_score)?;
+    py_result.set_item("total_pairs", result.total_pairs)?;
+    py_result.set_item("computation_time_ms", result.computation_time_ms)?;
+    py_result.set_item("method_used", result.method_used)?;
+    py_result.set_item("parallel_chunks_used", result.parallel_chunks_used)?;
+    
+    Ok(py_result.into())
+}
+
 
 /// Python module definition
 #[pymodule]
@@ -293,5 +345,6 @@ fn stellars(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(triplets_correct_ultra, m)?)?;
     m.add_function(wrap_pyfunction!(triplets_correct_parallel, m)?)?;
     m.add_function(wrap_pyfunction!(triplets_correct_optimized, m)?)?;
+    m.add_function(wrap_pyfunction!(phs_optimized, m)?)?;
     Ok(())
 }
