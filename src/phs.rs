@@ -152,6 +152,48 @@ fn map_cassiopeia_to_phylo_states(
     phylo_states
 }
 
+/// Calculate the distance from root matching Python/Cassiopeia tree.get_time()
+/// Python uses raw distance from root on trees that are already unit-length scaled
+fn calculate_distance_from_root(tree: &PhyloTree, node_id: NodeID) -> f64 {
+    // Calculate distance from root to this node (matching Python's tree.get_time())
+    let mut current_node_id = node_id;
+    let mut total_distance = 0.0;
+    
+    // Traverse from current node to root, summing branch lengths
+    while let Some(parent_id) = tree.get_node_parent_id(current_node_id) {
+        if let Some(branch_length) = tree.get_edge_weight(parent_id, current_node_id) {
+            total_distance += branch_length as f64;
+        }
+        current_node_id = parent_id;
+    }
+    
+    debug!("Node {}: distance_from_root = {}", node_id, total_distance);
+    
+    total_distance
+}
+
+/// Calculate the maximum distance from root to any leaf in the tree
+fn calculate_max_root_to_leaf_distance(tree: &PhyloTree) -> f64 {
+    let mut max_distance: f64 = 0.0;
+    
+    for leaf in tree.get_leaves() {
+        let mut current_node_id = leaf.get_id();
+        let mut total_distance = 0.0;
+        
+        // Traverse from leaf to root, summing branch lengths
+        while let Some(parent_id) = tree.get_node_parent_id(current_node_id) {
+            if let Some(branch_length) = tree.get_edge_weight(parent_id, current_node_id) {
+                total_distance += branch_length as f64;
+            }
+            current_node_id = parent_id;
+        }
+        
+        max_distance = max_distance.max(total_distance);
+    }
+    
+    max_distance
+}
+
 /// Calculate homoplasies following the Python implementation exactly
 /// Python counts each leaf pair exactly once with their LCA
 fn calculate_phs_and_lca_heights_direct(
@@ -160,12 +202,6 @@ fn calculate_phs_and_lca_heights_direct(
 ) -> (Vec<usize>, Vec<f64>) {
     let mut homoplasy_counts = Vec::new();
     let mut lca_heights = Vec::new();
-    
-    // Get maximum depth for normalization
-    let max_depth = tree.get_leaves()
-        .map(|leaf| tree.depth(leaf.get_id()))
-        .max()
-        .unwrap_or(0) as f64;
     
     // Get all leaves once
     let all_leaves: Vec<_> = tree.get_leaves().collect();
@@ -180,13 +216,11 @@ fn calculate_phs_and_lca_heights_direct(
             let lca_id = tree.get_lca_id(&[leaf1.get_id(), leaf2.get_id()]);
             let lca_states = tree_data.internal_character_states.get(&lca_id);
             
-            // Get normalized height for this LCA
-            let lca_depth = tree.depth(lca_id) as f64;
-            let lca_height = if max_depth > 0.0 { 
-                (max_depth - lca_depth) / max_depth 
-            } else { 
-                0.0 
-            };
+            debug!("Pair ({:?},{:?}): LCA node ID = {}", leaf1.get_taxa(), leaf2.get_taxa(), lca_id);
+            
+            // Calculate distance from root by traversing up the tree and summing branch lengths
+            // This matches tree.get_time(lca) in Python (distance from root in Cassiopeia)
+            let lca_height = calculate_distance_from_root(tree, lca_id);
             
             if let (Some(leaf1_taxa), Some(leaf2_taxa)) = (leaf1.get_taxa(), leaf2.get_taxa()) {
                 let leaf1_states = tree_data.leaf_character_states.get(leaf1_taxa);
@@ -237,6 +271,11 @@ fn calculate_phs_pvalues(
     let n = homoplasy_counts.len();
     let mut pvalues = Vec::with_capacity(n);
     
+    debug!("Starting PHS p-value calculation with n={} pairs, k={} characters", n, k);
+    debug!("Parameters: mutation_rate={:.6}, collision_probability={:.6}", mutation_rate, collision_probability);
+    debug!("Homoplasy counts: {:?}", homoplasy_counts);
+    debug!("LCA heights: {:?}", lca_heights);
+    
     // Calculate p-values for each pair
     for i in 0..n {
         let lca_height = lca_heights[i];
@@ -266,19 +305,32 @@ fn calculate_phs_pvalues(
             pvalue
         };
         
+        debug!("Pair {}: PHS={}, height={:.6}, alpha={:.6}, beta={:.6}, prob={:.6}, p-value={:.6}", 
+               i, homoplasy_count, lca_height, alpha, beta, prob, adjusted_pvalue);
+        
         pvalues.push(adjusted_pvalue);
     }
+    
+    debug!("Raw p-values before sorting: {:?}", pvalues);
     
     // Benjamini-Hochberg correction for multiple testing
     pvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
     
+    debug!("Sorted p-values: {:?}", pvalues);
+    
     let mut min_adjusted = f64::INFINITY;
     for (i, &pvalue) in pvalues.iter().enumerate() {
         let adjusted = pvalue * (n as f64) / ((i + 1) as f64);
+        debug!("BH step {}: pvalue={:.8} * {} / {} = {:.8}", i, pvalue, n, i+1, adjusted);
         if adjusted < min_adjusted {
             min_adjusted = adjusted;
+            debug!("  -> New minimum: {:.8}", min_adjusted);
+        } else {
+            debug!("  -> Keep minimum: {:.8}", min_adjusted);
         }
     }
+    
+    debug!("Final Benjamini-Hochberg corrected result: {:.10}", min_adjusted);
     
     min_adjusted
 }
