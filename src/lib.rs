@@ -1,6 +1,49 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use phylo::prelude::*;
+use log::info;
+
+/// Simple logger that outputs to stderr (compatible with Python logging)
+struct SimpleLogger;
+
+impl log::Log for SimpleLogger {
+    fn enabled(&self, _metadata: &log::Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("[{}] {}: {}", 
+                record.level(), 
+                record.target(), 
+                record.args()
+            );
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// Initialize Rust logging (call this from Python to enable logging)
+#[pyfunction]
+#[pyo3(signature = (level=None))]
+fn init_logging(level: Option<&str>) -> PyResult<()> {
+    let log_level = match level.unwrap_or("info") {
+        "trace" => log::LevelFilter::Trace,
+        "debug" => log::LevelFilter::Debug,
+        "info" => log::LevelFilter::Info,
+        "warn" => log::LevelFilter::Warn,
+        "error" => log::LevelFilter::Error,
+        _ => log::LevelFilter::Info,
+    };
+    
+    log::set_boxed_logger(Box::new(SimpleLogger))
+        .map(|()| log::set_max_level(log_level))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Failed to initialize logger: {}", e)))?;
+    
+    info!("Stellars logging initialized at {} level", level.unwrap_or("info"));
+    Ok(())
+}
 
 mod triplets;
 mod fast_triplets;
@@ -302,7 +345,8 @@ fn triplets_correct_optimized(
     collision_probability=None,
     missing_state=-1,
     unedited_state=0,
-    max_threads=None
+    max_threads=None,
+    use_provided_internal_states=None
 ))]
 fn phs_optimized(
     py: Python,
@@ -314,6 +358,7 @@ fn phs_optimized(
     missing_state: i32,
     unedited_state: i32,
     max_threads: Option<usize>,
+    use_provided_internal_states: Option<bool>,
 ) -> PyResult<PyObject> {
     // Parse tree from Newick string
     let mut tree = PhyloTree::from_newick(tree_newick.as_bytes())
@@ -329,6 +374,7 @@ fn phs_optimized(
         missing_state,
         unedited_state,
         max_threads,
+        use_provided_internal_states,
     );
     
     // Convert result to Python dictionary
@@ -607,5 +653,6 @@ fn stellars(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parsimony_p_value, m)?)?;
     m.add_function(wrap_pyfunction!(likelihood_score, m)?)?;
     m.add_function(wrap_pyfunction!(likelihood_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(init_logging, m)?)?;
     Ok(())
 }

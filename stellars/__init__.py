@@ -12,6 +12,7 @@ from stellars.stellars import (
         parsimony_p_value,
         likelihood_score,
         likelihood_distance,
+        init_logging,
         )
 
 # Add convenient aliases

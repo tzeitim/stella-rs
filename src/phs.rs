@@ -1,10 +1,11 @@
 use phylo::prelude::*;
 use phylo::node::NodeID;
-use rayon::prelude::*;
+// use rayon::prelude::*;  // Removed: not currently used
 use fxhash::FxHashMap;
 use std::collections::HashMap;
 use statrs::distribution::{Binomial, DiscreteCDF};
 use crate::parsimony::fitch_parsimony;
+use log::{debug, info, warn};
 
 /// PHS calculation result using optimized techniques
 #[derive(Debug, Clone)]
@@ -37,6 +38,7 @@ impl PHSTreeData {
         internal_character_states: HashMap<String, Vec<i32>>,
         missing_state: i32,
         unedited_state: i32,
+        use_provided_internal_states: bool,
     ) -> Self {
         tree.precompute_constant_time_lca();
         
@@ -56,21 +58,21 @@ impl PHSTreeData {
             character_matrix[0].len() 
         };
         
-        // Use Fitch parsimony to reconstruct ancestral character states
-        // This eliminates the node mapping problem and produces the same results as Python
-        eprintln!("DEBUG: Reconstructing ancestral states using Fitch parsimony algorithm");
+        let internal_char_states = if use_provided_internal_states && !internal_character_states.is_empty() {
+            info!("Using provided internal character states from Cassiopeia");
+            map_cassiopeia_to_phylo_states(tree, internal_character_states, n_characters, unedited_state)
+        } else {
+            info!("Reconstructing ancestral states using Fitch parsimony algorithm");
+            if !internal_character_states.is_empty() {
+                debug!("Python provided {} internal states, but using Fitch reconstruction because use_provided_internal_states=false", 
+                    internal_character_states.len());
+            }
+            fitch_parsimony(tree, &character_matrix, -1, unedited_state)
+        };
         
-        if !internal_character_states.is_empty() {
-            eprintln!("DEBUG: Python provided {} internal states, but using Fitch reconstruction instead", 
-                internal_character_states.len());
-        }
-        
-        // Reconstruct ancestral states using Fitch parsimony
-        let internal_char_states = fitch_parsimony(tree, &character_matrix, -1, unedited_state);
-        
-        eprintln!("DEBUG: Fitch parsimony reconstructed {} internal nodes", internal_char_states.len());
+        debug!("Using {} internal nodes", internal_char_states.len());
         for (node_id, states) in &internal_char_states {
-            eprintln!("DEBUG: Node {}: {:?}", node_id, states);
+            debug!("Node {}: {:?}", node_id, states);
         }
         
         PHSTreeData {
@@ -81,6 +83,65 @@ impl PHSTreeData {
             n_characters,
         }
     }
+}
+
+/// Map Cassiopeia internal node states (by string names) to phylo-rs NodeIDs
+/// This is the key function that solves the node mapping problem
+fn map_cassiopeia_to_phylo_states(
+    tree: &PhyloTree,
+    cassiopeia_states: HashMap<String, Vec<i32>>,
+    n_characters: usize,
+    unedited_state: i32,
+) -> FxHashMap<NodeID, Vec<i32>> {
+    let mut phylo_states = FxHashMap::default();
+    
+    debug!("Mapping {} Cassiopeia internal states to phylo-rs NodeIDs", cassiopeia_states.len());
+    
+    // Create a mapping from node names/labels to NodeIDs
+    let mut name_to_node_id = HashMap::new();
+    
+    // First, try to match by node taxa (if internal nodes have taxa)
+    for node in tree.get_nodes() {
+        if !node.is_leaf() {
+            if let Some(taxa) = node.get_taxa() {
+                name_to_node_id.insert(taxa.clone(), node.get_id());
+                debug!("Mapped taxa '{}' to NodeID {}", taxa, node.get_id());
+            }
+        }
+    }
+    
+    // If no taxa-based matching worked, try to match by string representation of NodeID
+    if name_to_node_id.is_empty() {
+        for node in tree.get_nodes() {
+            if !node.is_leaf() {
+                let node_id_str = format!("{}", node.get_id());
+                name_to_node_id.insert(node_id_str, node.get_id());
+                debug!("Mapped NodeID string '{}' to NodeID {}", node.get_id(), node.get_id());
+            }
+        }
+    }
+    
+    // Store the original count before moving
+    let original_count = cassiopeia_states.len();
+    
+    // Map the provided states to phylo-rs NodeIDs
+    for (cassiopeia_name, states) in cassiopeia_states {
+        if let Some(&node_id) = name_to_node_id.get(&cassiopeia_name) {
+            // Ensure the states vector has the right length
+            let mut padded_states = states;
+            padded_states.resize(n_characters, unedited_state);
+            phylo_states.insert(node_id, padded_states);
+            debug!("Successfully mapped Cassiopeia node '{}' to NodeID {} with {} characters", 
+                cassiopeia_name, node_id, n_characters);
+        } else {
+            warn!("Could not map Cassiopeia node '{}' to any phylo-rs NodeID", cassiopeia_name);
+        }
+    }
+    
+    info!("Successfully mapped {}/{} Cassiopeia internal states to phylo-rs", 
+        phylo_states.len(), original_count);
+    
+    phylo_states
 }
 
 /// Calculate homoplasies following the Python implementation exactly
@@ -274,16 +335,19 @@ pub fn optimized_phs(
     missing_state: i32,
     unedited_state: i32,
     _max_threads: Option<usize>, // ignored for now
+    use_provided_internal_states: Option<bool>, // NEW: use provided states instead of Fitch
 ) -> PHSResult {
     let start_time = std::time::Instant::now();
     
     // Build tree data structure
+    let use_provided = use_provided_internal_states.unwrap_or(false);
     let tree_data = PHSTreeData::new(
         tree,
         character_matrix.clone(),
         internal_character_states,
         missing_state,
         unedited_state,
+        use_provided,
     );
     
     // Estimate mutation rate if not provided
