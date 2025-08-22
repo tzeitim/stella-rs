@@ -1,6 +1,7 @@
 use phylo::prelude::*;
 use phylo::node::NodeID;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use fxhash::FxHashMap;
 
 /// Parsimony calculation result
 #[derive(Debug, Clone)]
@@ -56,7 +57,7 @@ pub fn calculate_parsimony(
 
 /// Implementation of the small MP algorithm from the PHS paper (Algorithm 1)
 /// This reconstructs ancestral states to minimize mutations under non-modifiability
-fn infer_internal_states_small_mp(
+pub fn infer_internal_states_small_mp(
     tree: &mut PhyloTree,
     character_matrix: &[Vec<i32>],
     missing_state: i32,
@@ -326,4 +327,257 @@ fn erf(x: f64) -> f64 {
     let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-x * x).exp();
 
     sign * y
+}
+
+/// Fitch parsimony algorithm for reconstructing ancestral character states
+/// This matches the algorithm used by Cassiopeia and other phylogenetic libraries
+/// Returns node ID -> character states mapping for internal nodes
+pub fn fitch_parsimony(
+    tree: &mut PhyloTree,
+    character_matrix: &[Vec<i32>],
+    missing_state: i32,
+    unedited_state: i32,
+) -> FxHashMap<NodeID, Vec<i32>> {
+    let mut ancestral_states = FxHashMap::default();
+    
+    // Get number of characters
+    let k = if character_matrix.is_empty() { 
+        return ancestral_states; 
+    } else { 
+        character_matrix[0].len() 
+    };
+    
+    // Create taxa to leaf index mapping
+    let mut taxa_to_idx = HashMap::new();
+    for (idx, leaf) in tree.get_leaves().enumerate() {
+        if let Some(taxa) = leaf.get_taxa() {
+            taxa_to_idx.insert(taxa.clone(), idx);
+        }
+    }
+    
+    // Phase 1: Postorder pass - compute possible states for each internal node
+    let root_id = tree.get_root_id();
+    let mut possible_states: HashMap<NodeID, Vec<HashSet<i32>>> = HashMap::new();
+    
+    fitch_postorder_pass(
+        tree, 
+        root_id, 
+        &taxa_to_idx, 
+        character_matrix, 
+        &mut possible_states, 
+        k, 
+        missing_state, 
+        unedited_state
+    );
+    
+    // Phase 2: Preorder pass - choose optimal states for each internal node
+    fitch_preorder_pass(
+        tree,
+        root_id,
+        None, // No parent for root
+        &possible_states,
+        &mut ancestral_states,
+        k,
+        unedited_state
+    );
+    
+    ancestral_states
+}
+
+/// Postorder pass of Fitch algorithm - compute possible states
+fn fitch_postorder_pass(
+    tree: &PhyloTree,
+    node_id: NodeID,
+    taxa_to_idx: &HashMap<String, usize>,
+    character_matrix: &[Vec<i32>],
+    possible_states: &mut HashMap<NodeID, Vec<HashSet<i32>>>,
+    k: usize,
+    missing_state: i32,
+    unedited_state: i32,
+) -> Vec<HashSet<i32>> {
+    let node = tree.get_node(node_id).unwrap();
+    
+    // If it's a leaf, return its observed states
+    if node.is_leaf() {
+        let mut node_possible_states = vec![HashSet::new(); k];
+        
+        if let Some(taxa) = node.get_taxa() {
+            if let Some(&leaf_idx) = taxa_to_idx.get(taxa) {
+                if leaf_idx < character_matrix.len() {
+                    let leaf_states = &character_matrix[leaf_idx];
+                    for (char_idx, &state) in leaf_states.iter().enumerate() {
+                        if char_idx < k {
+                            if state == missing_state {
+                                // Missing state: all possible states are allowed
+                                node_possible_states[char_idx].insert(unedited_state);
+                                // Add some common non-zero states
+                                for s in 1..=20 {
+                                    node_possible_states[char_idx].insert(s);
+                                }
+                            } else {
+                                // Observed state
+                                node_possible_states[char_idx].insert(state);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Ensure each character has at least the unedited state
+        for char_states in &mut node_possible_states {
+            if char_states.is_empty() {
+                char_states.insert(unedited_state);
+            }
+        }
+        
+        return node_possible_states;
+    }
+    
+    // For internal nodes, process children first (postorder)
+    let children: Vec<NodeID> = node.get_children().collect();
+    let mut child_possible_states = Vec::new();
+    
+    for child_id in children {
+        let child_states = fitch_postorder_pass(
+            tree,
+            child_id,
+            taxa_to_idx,
+            character_matrix,
+            possible_states,
+            k,
+            missing_state,
+            unedited_state,
+        );
+        child_possible_states.push(child_states);
+    }
+    
+    // Compute possible states for this internal node
+    let mut node_possible_states = vec![HashSet::new(); k];
+    
+    for char_idx in 0..k {
+        if child_possible_states.is_empty() {
+            // No children - should not happen in binary tree
+            node_possible_states[char_idx].insert(unedited_state);
+        } else if child_possible_states.len() == 1 {
+            // Single child - inherit its states
+            node_possible_states[char_idx] = child_possible_states[0][char_idx].clone();
+        } else {
+            // Multiple children - find intersection and union
+            let mut intersection = child_possible_states[0][char_idx].clone();
+            let mut union = child_possible_states[0][char_idx].clone();
+            
+            for child_states in &child_possible_states[1..] {
+                let child_char_states = &child_states[char_idx];
+                intersection = intersection.intersection(child_char_states).copied().collect();
+                union = union.union(child_char_states).copied().collect();
+            }
+            
+            // Fitch rule: if intersection is non-empty, use intersection; otherwise use union
+            if !intersection.is_empty() {
+                node_possible_states[char_idx] = intersection;
+            } else {
+                node_possible_states[char_idx] = union;
+            }
+        }
+        
+        // Ensure we have at least one state
+        if node_possible_states[char_idx].is_empty() {
+            node_possible_states[char_idx].insert(unedited_state);
+        }
+    }
+    
+    // Store the possible states for this node
+    possible_states.insert(node_id, node_possible_states.clone());
+    
+    node_possible_states
+}
+
+/// Preorder pass of Fitch algorithm - choose optimal states
+fn fitch_preorder_pass(
+    tree: &PhyloTree,
+    node_id: NodeID,
+    parent_chosen_states: Option<&Vec<i32>>,
+    possible_states: &HashMap<NodeID, Vec<HashSet<i32>>>,
+    ancestral_states: &mut FxHashMap<NodeID, Vec<i32>>,
+    k: usize,
+    unedited_state: i32,
+) {
+    let node = tree.get_node(node_id).unwrap();
+    
+    // Skip leaves - they already have their states
+    if node.is_leaf() {
+        return;
+    }
+    
+    // Get possible states for this node
+    let node_possible_states = possible_states.get(&node_id);
+    if node_possible_states.is_none() {
+        // Fallback to unedited states
+        ancestral_states.insert(node_id, vec![unedited_state; k]);
+        return;
+    }
+    
+    let node_possible_states = node_possible_states.unwrap();
+    let mut chosen_states = vec![unedited_state; k];
+    
+    for char_idx in 0..k {
+        let possible_char_states = &node_possible_states[char_idx];
+        
+        if possible_char_states.is_empty() {
+            chosen_states[char_idx] = unedited_state;
+        } else if possible_char_states.len() == 1 {
+            // Only one possible state
+            chosen_states[char_idx] = *possible_char_states.iter().next().unwrap();
+        } else {
+            // Multiple possible states - choose based on parent if available
+            if let Some(parent_states) = parent_chosen_states {
+                if char_idx < parent_states.len() {
+                    let parent_state = parent_states[char_idx];
+                    if possible_char_states.contains(&parent_state) {
+                        // Choose parent's state if possible
+                        chosen_states[char_idx] = parent_state;
+                    } else {
+                        // Choose the unedited state if possible, otherwise any state
+                        if possible_char_states.contains(&unedited_state) {
+                            chosen_states[char_idx] = unedited_state;
+                        } else {
+                            chosen_states[char_idx] = *possible_char_states.iter().next().unwrap();
+                        }
+                    }
+                } else {
+                    // Choose unedited state if possible
+                    if possible_char_states.contains(&unedited_state) {
+                        chosen_states[char_idx] = unedited_state;
+                    } else {
+                        chosen_states[char_idx] = *possible_char_states.iter().next().unwrap();
+                    }
+                }
+            } else {
+                // No parent (this is root) - prefer unedited state
+                if possible_char_states.contains(&unedited_state) {
+                    chosen_states[char_idx] = unedited_state;
+                } else {
+                    chosen_states[char_idx] = *possible_char_states.iter().next().unwrap();
+                }
+            }
+        }
+    }
+    
+    // Store the chosen states for this internal node
+    ancestral_states.insert(node_id, chosen_states.clone());
+    
+    // Recursively process children
+    let children: Vec<NodeID> = node.get_children().collect();
+    for child_id in children {
+        fitch_preorder_pass(
+            tree,
+            child_id,
+            Some(&chosen_states),
+            possible_states,
+            ancestral_states,
+            k,
+            unedited_state,
+        );
+    }
 }
