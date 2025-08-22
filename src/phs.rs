@@ -85,8 +85,8 @@ impl PHSTreeData {
     }
 }
 
-/// Map Cassiopeia internal node states (by string names) to phylo-rs NodeIDs
-/// This is the key function that solves the node mapping problem
+/// Map Cassiopeia internal node states to phylo-rs NodeIDs using node names from Newick
+/// This uses the actual node names that were preserved during Newick parsing
 fn map_cassiopeia_to_phylo_states(
     tree: &PhyloTree,
     cassiopeia_states: HashMap<String, Vec<i32>>,
@@ -95,51 +95,59 @@ fn map_cassiopeia_to_phylo_states(
 ) -> FxHashMap<NodeID, Vec<i32>> {
     let mut phylo_states = FxHashMap::default();
     
-    debug!("Mapping {} Cassiopeia internal states to phylo-rs NodeIDs", cassiopeia_states.len());
+    debug!("Mapping {} Cassiopeia internal states to phylo-rs NodeIDs using node names", cassiopeia_states.len());
     
-    // Create a mapping from node names/labels to NodeIDs
+    // Create a mapping from node names (taxa) to NodeIDs in phylo-rs tree
     let mut name_to_node_id = HashMap::new();
     
-    // First, try to match by node taxa (if internal nodes have taxa)
+    // Get all nodes and create name -> NodeID mapping
     for node in tree.get_nodes() {
         if !node.is_leaf() {
             if let Some(taxa) = node.get_taxa() {
                 name_to_node_id.insert(taxa.clone(), node.get_id());
-                debug!("Mapped taxa '{}' to NodeID {}", taxa, node.get_id());
+                debug!("Found internal node with name '{}' mapped to NodeID {}", taxa, node.get_id());
+            } else {
+                debug!("Found internal node with NodeID {} but no name", node.get_id());
+            }
+            
+            // Check if branch lengths are available
+            if let Some(parent_id) = node.get_parent() {
+                if let Some(branch_length) = tree.get_edge_weight(parent_id, node.get_id()) {
+                    debug!("  Branch length from parent {} to node {}: {}", parent_id, node.get_id(), branch_length);
+                } else {
+                    debug!("  No branch length available from parent {} to node {}", parent_id, node.get_id());
+                }
+            } else {
+                debug!("  Node {} is root (no parent)", node.get_id());
             }
         }
     }
     
-    // If no taxa-based matching worked, try to match by string representation of NodeID
-    if name_to_node_id.is_empty() {
-        for node in tree.get_nodes() {
-            if !node.is_leaf() {
-                let node_id_str = format!("{}", node.get_id());
-                name_to_node_id.insert(node_id_str, node.get_id());
-                debug!("Mapped NodeID string '{}' to NodeID {}", node.get_id(), node.get_id());
-            }
-        }
-    }
+    debug!("Created name mapping for {} internal nodes in phylo-rs tree", name_to_node_id.len());
     
-    // Store the original count before moving
-    let original_count = cassiopeia_states.len();
+    // Map Cassiopeia states to phylo-rs NodeIDs using the name mapping
+    let mut successful_mappings = 0;
+    let total_cassiopeia_states = cassiopeia_states.len();
     
-    // Map the provided states to phylo-rs NodeIDs
     for (cassiopeia_name, states) in cassiopeia_states {
         if let Some(&node_id) = name_to_node_id.get(&cassiopeia_name) {
             // Ensure the states vector has the right length
             let mut padded_states = states;
             padded_states.resize(n_characters, unedited_state);
+            
             phylo_states.insert(node_id, padded_states);
-            debug!("Successfully mapped Cassiopeia node '{}' to NodeID {} with {} characters", 
+            successful_mappings += 1;
+            
+            debug!("Successfully mapped Cassiopeia node '{}' to phylo-rs NodeID {} with {} characters", 
                 cassiopeia_name, node_id, n_characters);
         } else {
-            warn!("Could not map Cassiopeia node '{}' to any phylo-rs NodeID", cassiopeia_name);
+            warn!("Could not find phylo-rs node with name '{}' (available names: {:?})", 
+                cassiopeia_name, name_to_node_id.keys().take(5).collect::<Vec<_>>());
         }
     }
     
-    info!("Successfully mapped {}/{} Cassiopeia internal states to phylo-rs", 
-        phylo_states.len(), original_count);
+    info!("Successfully mapped {}/{} Cassiopeia internal states to phylo-rs using node names", 
+        successful_mappings, total_cassiopeia_states);
     
     phylo_states
 }
