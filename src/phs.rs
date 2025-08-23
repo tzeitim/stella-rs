@@ -39,15 +39,43 @@ impl PHSTreeData {
         missing_state: i32,
         unedited_state: i32,
         use_provided_internal_states: bool,
+        leaf_names: Option<Vec<String>>,
     ) -> Self {
         tree.precompute_constant_time_lca();
         
         // Build leaf character states map
+        // PROPER FIX: Map character states by leaf name instead of assuming index correspondence
         let mut leaf_character_states = FxHashMap::default();
-        for (idx, leaf) in tree.get_leaves().enumerate() {
-            if let Some(taxa) = leaf.get_taxa() {
+        
+        if let Some(names) = &leaf_names {
+            // Use provided leaf names to map character_matrix rows to leaf names
+            info!("Using provided leaf names for character matrix mapping");
+            if names.len() != character_matrix.len() {
+                warn!("Leaf names length ({}) does not match character matrix length ({})", 
+                    names.len(), character_matrix.len());
+            }
+            
+            for (idx, leaf_name) in names.iter().enumerate() {
                 if idx < character_matrix.len() {
-                    leaf_character_states.insert(taxa.clone(), character_matrix[idx].clone());
+                    leaf_character_states.insert(leaf_name.clone(), character_matrix[idx].clone());
+                    debug!("CORRECT MAPPING: Leaf '{}' gets character_matrix[{}] = {:?}", 
+                        leaf_name, idx, &character_matrix[idx][..5.min(character_matrix[idx].len())]);
+                }
+            }
+            
+            info!("Successfully mapped {} leaf character states by name", leaf_character_states.len());
+        } else {
+            // Fallback to old behavior with warning
+            warn!("CRITICAL BUG: No leaf names provided! Using tree traversal order (likely incorrect)");
+            warn!("This may cause homoplasy overcounting due to character state mismatches");
+            
+            for (idx, leaf) in tree.get_leaves().enumerate() {
+                if let Some(taxa) = leaf.get_taxa() {
+                    if idx < character_matrix.len() {
+                        leaf_character_states.insert(taxa.clone(), character_matrix[idx].clone());
+                        debug!("FALLBACK MAPPING: Leaf '{}' at tree position {} gets character_matrix[{}]", 
+                            taxa, idx, idx);
+                    }
                 }
             }
         }
@@ -72,7 +100,7 @@ impl PHSTreeData {
         
         debug!("Using {} internal nodes", internal_char_states.len());
         for (node_id, states) in &internal_char_states {
-            debug!("Node {}: {:?}", node_id, states);
+            debug!("rigi Node {}: {:?}", node_id, states);
         }
         
         PHSTreeData {
@@ -158,16 +186,27 @@ fn calculate_distance_from_root(tree: &PhyloTree, node_id: NodeID) -> f64 {
     // Calculate distance from root to this node (matching Python's tree.get_time())
     let mut current_node_id = node_id;
     let mut total_distance = 0.0;
+    let mut path_details = Vec::new();
     
     // Traverse from current node to root, summing branch lengths
     while let Some(parent_id) = tree.get_node_parent_id(current_node_id) {
         if let Some(branch_length) = tree.get_edge_weight(parent_id, current_node_id) {
             total_distance += branch_length as f64;
+            path_details.push((current_node_id, parent_id, branch_length));
+        } else {
+            path_details.push((current_node_id, parent_id, 0.0));
         }
         current_node_id = parent_id;
     }
     
-    debug!("Node {}: distance_from_root = {}", node_id, total_distance);
+    // Only log for debugging specific cases - can be disabled in production
+    if log::log_enabled!(log::Level::Debug) && !path_details.is_empty() {
+        debug!("Node {} distance calculation:", node_id);
+        for (child, parent, length) in &path_details {
+            debug!("  {} -> {} : length = {:.6}", child, parent, length);
+        }
+        debug!("  Total distance from root: {:.6}", total_distance);
+    }
     
     total_distance
 }
@@ -206,6 +245,13 @@ fn calculate_phs_and_lca_heights_direct(
     // Get all leaves once
     let all_leaves: Vec<_> = tree.get_leaves().collect();
     
+    info!("=== STELLARS DETAILED HOMOPLASY CALCULATION ===");
+    info!("Tree has {} leaves, processing {} pairs", all_leaves.len(), all_leaves.len() * (all_leaves.len() - 1) / 2);
+    info!("Characters per leaf: {}", tree_data.n_characters);
+    
+    let mut total_homoplasies = 0;
+    let mut pair_count = 0;
+    
     // Python approach: iterate through all leaf pairs exactly once
     for i in 0..all_leaves.len() {
         for j in i+1..all_leaves.len() {
@@ -216,8 +262,6 @@ fn calculate_phs_and_lca_heights_direct(
             let lca_id = tree.get_lca_id(&[leaf1.get_id(), leaf2.get_id()]);
             let lca_states = tree_data.internal_character_states.get(&lca_id);
             
-            debug!("Pair ({:?},{:?}): LCA node ID = {}", leaf1.get_taxa(), leaf2.get_taxa(), lca_id);
-            
             // Calculate distance from root by traversing up the tree and summing branch lengths
             // This matches tree.get_time(lca) in Python (distance from root in Cassiopeia)
             let lca_height = calculate_distance_from_root(tree, lca_id);
@@ -227,6 +271,7 @@ fn calculate_phs_and_lca_heights_direct(
                 let leaf2_states = tree_data.leaf_character_states.get(leaf2_taxa);
                 
                 let mut phs = 0;
+                let mut detailed_homoplasies = Vec::new();
                 
                 if let (Some(lca_chars), Some(leaf1_chars), Some(leaf2_chars)) = 
                     (lca_states, leaf1_states, leaf2_states) {
@@ -247,15 +292,54 @@ fn calculate_phs_and_lca_heights_direct(
                             && leaf1_char > tree_data.unedited_state
                             && leaf1_char == leaf2_char {
                             phs += 1;
+                            detailed_homoplasies.push((char_idx, lca_char, leaf1_char, leaf2_char));
+                        }
+                    }
+                    
+                    total_homoplasies += phs;
+                    
+                    // Log detailed information for first 10 pairs
+                    if pair_count < 10 {
+                        info!("Pair {}: {:?}-{:?}", pair_count, leaf1_taxa, leaf2_taxa);
+                        info!("  LCA node ID: {}, height: {:.6}", lca_id, lca_height);
+                        info!("  Homoplasy count: {}", phs);
+                        if !detailed_homoplasies.is_empty() {
+                            info!("  Homoplasies at chars: {:?}", detailed_homoplasies.iter().map(|(idx, lca, l1, l2)| 
+                                format!("{}(lca:{},l1:{},l2:{})", idx, lca, l1, l2)).collect::<Vec<_>>());
+                        }
+                        if phs == 0 {
+                            // Show a few non-homoplasic characters for debugging
+                            let sample_chars: Vec<_> = (0..tree_data.n_characters.min(5)).map(|idx| {
+                                let lca_char = lca_chars.get(idx).copied().unwrap_or(tree_data.unedited_state);
+                                let leaf1_char = leaf1_chars.get(idx).copied().unwrap_or(tree_data.missing_state);
+                                let leaf2_char = leaf2_chars.get(idx).copied().unwrap_or(tree_data.missing_state);
+                                format!("{}(lca:{},l1:{},l2:{})", idx, lca_char, leaf1_char, leaf2_char)
+                            }).collect();
+                            info!("  Sample chars (no homoplasies): {:?}", sample_chars);
                         }
                     }
                 }
                 
                 homoplasy_counts.push(phs);
                 lca_heights.push(lca_height);
+                pair_count += 1;
             }
         }
     }
+    
+    info!("STELLARS Homoplasy Summary:");
+    info!("  Total pairs analyzed: {}", pair_count);
+    info!("  Total homoplasies found: {}", total_homoplasies);
+    info!("  Average homoplasies per pair: {:.3}", if pair_count > 0 { total_homoplasies as f64 / pair_count as f64 } else { 0.0 });
+    
+    // Calculate homoplasy distribution for comparison with Python
+    let mut homoplasy_dist = std::collections::HashMap::new();
+    for &count in &homoplasy_counts {
+        *homoplasy_dist.entry(count).or_insert(0) += 1;
+    }
+    let mut sorted_dist: Vec<_> = homoplasy_dist.iter().collect();
+    sorted_dist.sort_by_key(|(k, _)| *k);
+    info!("  Homoplasy distribution: {:?}", sorted_dist);
     
     (homoplasy_counts, lca_heights)
 }
@@ -271,15 +355,28 @@ fn calculate_phs_pvalues(
     let n = homoplasy_counts.len();
     let mut pvalues = Vec::with_capacity(n);
     
-    debug!("Starting PHS p-value calculation with n={} pairs, k={} characters", n, k);
-    debug!("Parameters: mutation_rate={:.6}, collision_probability={:.6}", mutation_rate, collision_probability);
-    debug!("Homoplasy counts: {:?}", homoplasy_counts);
-    debug!("LCA heights: {:?}", lca_heights);
+    info!("=== STELLARS DETAILED P-VALUE CALCULATION ===");
+    info!("Starting PHS p-value calculation with n={} pairs, k={} characters", n, k);
+    info!("Parameters: mutation_rate={:.6}, collision_probability={:.6}", mutation_rate, collision_probability);
+    
+    // Log sample of inputs for comparison
+    let sample_size = 10.min(n);
+    info!("Sample homoplasy counts (first {}): {:?}", sample_size, &homoplasy_counts[..sample_size]);
+    info!("Sample LCA heights (first {}): {:?}", sample_size, 
+        &lca_heights[..sample_size].iter().map(|h| format!("{:.6}", h)).collect::<Vec<_>>());
+    
+    let mut ultra_low_count = 0;
+    let mut zero_homoplasy_count = 0;
+    let mut probability_sum = 0.0;
     
     // Calculate p-values for each pair
     for i in 0..n {
         let lca_height = lca_heights[i];
         let homoplasy_count = homoplasy_counts[i];
+        
+        if homoplasy_count == 0 {
+            zero_homoplasy_count += 1;
+        }
         
         // Calculate probability of homoplasy under null model
         let alpha = (-mutation_rate * lca_height).exp();
@@ -289,6 +386,8 @@ fn calculate_phs_pvalues(
         } else {
             alpha * beta * beta * collision_probability
         };
+        
+        probability_sum += prob;
         
         // Calculate binomial p-value
         // p-value = 1 - P(X <= homoplasy_count - 1) where X ~ Binomial(k, prob)
@@ -305,32 +404,71 @@ fn calculate_phs_pvalues(
             pvalue
         };
         
-        debug!("Pair {}: PHS={}, height={:.6}, alpha={:.6}, beta={:.6}, prob={:.6}, p-value={:.6}", 
-               i, homoplasy_count, lca_height, alpha, beta, prob, adjusted_pvalue);
+        if adjusted_pvalue < 1e-10 {
+            ultra_low_count += 1;
+        }
+        
+        // Log detailed information for first 10 pairs
+        if i < 10 {
+            info!("Pair {}: PHS={}, height={:.6}, alpha={:.6}, beta={:.6}, prob={:.6}, p-value={:.6e}", 
+                   i, homoplasy_count, lca_height, alpha, beta, prob, adjusted_pvalue);
+            
+            // Additional detail for debugging probability calculation
+            let exp_term1 = -mutation_rate * lca_height;
+            let exp_term2 = -mutation_rate * (1.0 - lca_height);
+            info!("    exp({:.6}) = {:.6}, exp({:.6}) = {:.6}", 
+                   exp_term1, exp_term1.exp(), exp_term2, exp_term2.exp());
+            
+            if homoplasy_count > 0 {
+                let binomial_cdf_val = binomial_cdf(homoplasy_count - 1, k, prob);
+                info!("    binomial_cdf({}, {}, {:.6}) = {:.6e}", homoplasy_count - 1, k, prob, binomial_cdf_val);
+            }
+        }
         
         pvalues.push(adjusted_pvalue);
     }
     
-    debug!("Raw p-values before sorting: {:?}", pvalues);
+    info!("P-value calculation summary:");
+    info!("  Zero homoplasy pairs: {}/{} ({:.1}%)", zero_homoplasy_count, n, 100.0 * zero_homoplasy_count as f64 / n as f64);
+    info!("  Ultra-low p-values (<1e-10): {}/{} ({:.1}%)", ultra_low_count, n, 100.0 * ultra_low_count as f64 / n as f64);
+    info!("  Average probability per pair: {:.6e}", probability_sum / n as f64);
+    
+    let min_pvalue = pvalues.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max_pvalue = pvalues.iter().cloned().fold(0.0, f64::max);
+    info!("  Raw p-value range: {:.2e} to {:.2e}", min_pvalue, max_pvalue);
     
     // Benjamini-Hochberg correction for multiple testing
     pvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
     
-    debug!("Sorted p-values: {:?}", pvalues);
+    info!("Sorted p-values (first 10): {:?}", 
+        pvalues.iter().take(10).map(|p| format!("{:.2e}", p)).collect::<Vec<_>>());
     
     let mut min_adjusted = f64::INFINITY;
     for (i, &pvalue) in pvalues.iter().enumerate() {
         let adjusted = pvalue * (n as f64) / ((i + 1) as f64);
-        debug!("BH step {}: pvalue={:.8} * {} / {} = {:.8}", i, pvalue, n, i+1, adjusted);
+        
+        if i < 10 {
+            info!("BH step {}: pvalue={:.8e} * {} / {} = {:.8e}", i, pvalue, n, i+1, adjusted);
+        }
+        
         if adjusted < min_adjusted {
             min_adjusted = adjusted;
-            debug!("  -> New minimum: {:.8}", min_adjusted);
-        } else {
-            debug!("  -> Keep minimum: {:.8}", min_adjusted);
+            if i < 10 {
+                info!("  -> New minimum: {:.8e}", min_adjusted);
+            }
         }
     }
     
-    debug!("Final Benjamini-Hochberg corrected result: {:.10}", min_adjusted);
+    info!("Final Benjamini-Hochberg corrected result: {:.10e}", min_adjusted);
+    
+    if min_adjusted < 1e-10 {
+        info!("🚨 ULTRA-LOW STELLARS RESULT: {:.2e} - This matches the simulation issue!", min_adjusted);
+        info!("This suggests the issue is in either:");
+        info!("  1. Homoplasy overcounting (too many homoplasies detected)");
+        info!("  2. Probability miscalculation (prob values too extreme)");
+        info!("  3. Binomial CDF numerical issues");
+        info!("  4. Benjamini-Hochberg correction amplifying small errors");
+    }
     
     min_adjusted
 }
@@ -396,6 +534,7 @@ pub fn optimized_phs(
     unedited_state: i32,
     _max_threads: Option<usize>, // ignored for now
     use_provided_internal_states: Option<bool>, // NEW: use provided states instead of Fitch
+    leaf_names: Option<Vec<String>>, // NEW: leaf names corresponding to character_matrix rows
 ) -> PHSResult {
     let start_time = std::time::Instant::now();
     
@@ -408,6 +547,7 @@ pub fn optimized_phs(
         missing_state,
         unedited_state,
         use_provided,
+        leaf_names,
     );
     
     // Estimate mutation rate if not provided

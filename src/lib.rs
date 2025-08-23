@@ -346,7 +346,8 @@ fn triplets_correct_optimized(
     missing_state=-1,
     unedited_state=0,
     max_threads=None,
-    use_provided_internal_states=None
+    use_provided_internal_states=None,
+    leaf_names=None
 ))]
 fn phs_optimized(
     py: Python,
@@ -359,6 +360,7 @@ fn phs_optimized(
     unedited_state: i32,
     max_threads: Option<usize>,
     use_provided_internal_states: Option<bool>,
+    leaf_names: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
     // Parse tree from Newick string
     let mut tree = PhyloTree::from_newick(tree_newick.as_bytes())
@@ -375,6 +377,7 @@ fn phs_optimized(
         unedited_state,
         max_threads,
         use_provided_internal_states,
+        leaf_names,
     );
     
     // Convert result to Python dictionary
