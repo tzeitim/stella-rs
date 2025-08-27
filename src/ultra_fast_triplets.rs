@@ -15,7 +15,9 @@ pub struct UltraFastTripletResult {
 
 /// Ultra-optimized tree data with flat arrays for maximum speed
 struct UltraFastTreeData {
+    #[allow(dead_code)]
     taxa_to_idx: HashMap<String, usize>,
+    #[allow(dead_code)]
     idx_to_taxa: Vec<String>,
     n_taxa: usize,
     // Flat 2D array for O(1) LCA depth access: [i][j] = LCA depth of taxa i and j
@@ -79,10 +81,12 @@ impl UltraFastTreeData {
         }
     }
     
+    #[allow(dead_code)]
     fn taxa_to_idx(&self, taxa: &str) -> Option<usize> {
         self.taxa_to_idx.get(taxa).copied()
     }
     
+    #[allow(dead_code)]
     fn idx_to_taxa(&self, idx: usize) -> &str {
         &self.idx_to_taxa[idx]
     }

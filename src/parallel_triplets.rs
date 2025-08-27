@@ -17,7 +17,9 @@ pub struct ParallelTripletResult {
 
 /// Thread-safe tree data for parallel processing
 struct ParallelTreeData {
+    #[allow(dead_code)]
     taxa_to_idx: HashMap<String, usize>,
+    #[allow(dead_code)]
     idx_to_taxa: Vec<String>,
     n_taxa: usize,
     // Flat 2D array for O(1) LCA depth access - read-only after construction

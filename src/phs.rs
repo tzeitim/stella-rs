@@ -5,7 +5,7 @@ use fxhash::FxHashMap;
 use std::collections::HashMap;
 use statrs::distribution::{Binomial, DiscreteCDF};
 use crate::parsimony::fitch_parsimony;
-use log::{debug, info, warn};
+use log::{debug, warn};
 
 /// PHS calculation result using optimized techniques
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ impl PHSTreeData {
         
         if let Some(names) = &leaf_names {
             // Use provided leaf names to map character_matrix rows to leaf names
-            info!("Using provided leaf names for character matrix mapping");
+            debug!("Using provided leaf names for character matrix mapping");
             if names.len() != character_matrix.len() {
                 warn!("Leaf names length ({}) does not match character matrix length ({})", 
                     names.len(), character_matrix.len());
@@ -63,7 +63,7 @@ impl PHSTreeData {
                 }
             }
             
-            info!("Successfully mapped {} leaf character states by name", leaf_character_states.len());
+            debug!("Successfully mapped {} leaf character states by name", leaf_character_states.len());
         } else {
             // Fallback to old behavior with warning
             warn!("CRITICAL BUG: No leaf names provided! Using tree traversal order (likely incorrect)");
@@ -87,10 +87,10 @@ impl PHSTreeData {
         };
         
         let internal_char_states = if use_provided_internal_states && !internal_character_states.is_empty() {
-            info!("Using provided internal character states from Cassiopeia");
+            debug!("Using provided internal character states from Cassiopeia");
             map_cassiopeia_to_phylo_states(tree, internal_character_states, n_characters, unedited_state)
         } else {
-            info!("Reconstructing ancestral states using Fitch parsimony algorithm");
+            debug!("Reconstructing ancestral states using Fitch parsimony algorithm");
             if !internal_character_states.is_empty() {
                 debug!("Python provided {} internal states, but using Fitch reconstruction because use_provided_internal_states=false", 
                     internal_character_states.len());
@@ -174,7 +174,7 @@ fn map_cassiopeia_to_phylo_states(
         }
     }
     
-    info!("Successfully mapped {}/{} Cassiopeia internal states to phylo-rs using node names", 
+    debug!("Successfully mapped {}/{} Cassiopeia internal states to phylo-rs using node names", 
         successful_mappings, total_cassiopeia_states);
     
     phylo_states
@@ -211,28 +211,6 @@ fn calculate_distance_from_root(tree: &PhyloTree, node_id: NodeID) -> f64 {
     total_distance
 }
 
-/// Calculate the maximum distance from root to any leaf in the tree
-fn calculate_max_root_to_leaf_distance(tree: &PhyloTree) -> f64 {
-    let mut max_distance: f64 = 0.0;
-    
-    for leaf in tree.get_leaves() {
-        let mut current_node_id = leaf.get_id();
-        let mut total_distance = 0.0;
-        
-        // Traverse from leaf to root, summing branch lengths
-        while let Some(parent_id) = tree.get_node_parent_id(current_node_id) {
-            if let Some(branch_length) = tree.get_edge_weight(parent_id, current_node_id) {
-                total_distance += branch_length as f64;
-            }
-            current_node_id = parent_id;
-        }
-        
-        max_distance = max_distance.max(total_distance);
-    }
-    
-    max_distance
-}
-
 /// Calculate homoplasies following the Python implementation exactly
 /// Python counts each leaf pair exactly once with their LCA
 fn calculate_phs_and_lca_heights_direct(
@@ -245,9 +223,9 @@ fn calculate_phs_and_lca_heights_direct(
     // Get all leaves once
     let all_leaves: Vec<_> = tree.get_leaves().collect();
     
-    info!("=== STELLARS DETAILED HOMOPLASY CALCULATION ===");
-    info!("Tree has {} leaves, processing {} pairs", all_leaves.len(), all_leaves.len() * (all_leaves.len() - 1) / 2);
-    info!("Characters per leaf: {}", tree_data.n_characters);
+    debug!("=== STELLARS DETAILED HOMOPLASY CALCULATION ===");
+    debug!("Tree has {} leaves, processing {} pairs", all_leaves.len(), all_leaves.len() * (all_leaves.len() - 1) / 2);
+    debug!("Characters per leaf: {}", tree_data.n_characters);
     
     let mut total_homoplasies = 0;
     let mut pair_count = 0;
@@ -300,11 +278,11 @@ fn calculate_phs_and_lca_heights_direct(
                     
                     // Log detailed information for first 10 pairs
                     if pair_count < 10 {
-                        info!("Pair {}: {:?}-{:?}", pair_count, leaf1_taxa, leaf2_taxa);
-                        info!("  LCA node ID: {}, height: {:.6}", lca_id, lca_height);
-                        info!("  Homoplasy count: {}", phs);
+                        debug!("Pair {}: {:?}-{:?}", pair_count, leaf1_taxa, leaf2_taxa);
+                        debug!("  LCA node ID: {}, height: {:.6}", lca_id, lca_height);
+                        debug!("  Homoplasy count: {}", phs);
                         if !detailed_homoplasies.is_empty() {
-                            info!("  Homoplasies at chars: {:?}", detailed_homoplasies.iter().map(|(idx, lca, l1, l2)| 
+                            debug!("  Homoplasies at chars: {:?}", detailed_homoplasies.iter().map(|(idx, lca, l1, l2)| 
                                 format!("{}(lca:{},l1:{},l2:{})", idx, lca, l1, l2)).collect::<Vec<_>>());
                         }
                         if phs == 0 {
@@ -315,7 +293,7 @@ fn calculate_phs_and_lca_heights_direct(
                                 let leaf2_char = leaf2_chars.get(idx).copied().unwrap_or(tree_data.missing_state);
                                 format!("{}(lca:{},l1:{},l2:{})", idx, lca_char, leaf1_char, leaf2_char)
                             }).collect();
-                            info!("  Sample chars (no homoplasies): {:?}", sample_chars);
+                            debug!("  Sample chars (no homoplasies): {:?}", sample_chars);
                         }
                     }
                 }
@@ -327,10 +305,10 @@ fn calculate_phs_and_lca_heights_direct(
         }
     }
     
-    info!("STELLARS Homoplasy Summary:");
-    info!("  Total pairs analyzed: {}", pair_count);
-    info!("  Total homoplasies found: {}", total_homoplasies);
-    info!("  Average homoplasies per pair: {:.3}", if pair_count > 0 { total_homoplasies as f64 / pair_count as f64 } else { 0.0 });
+    debug!("STELLARS Homoplasy Summary:");
+    debug!("  Total pairs analyzed: {}", pair_count);
+    debug!("  Total homoplasies found: {}", total_homoplasies);
+    debug!("  Average homoplasies per pair: {:.3}", if pair_count > 0 { total_homoplasies as f64 / pair_count as f64 } else { 0.0 });
     
     // Calculate homoplasy distribution for comparison with Python
     let mut homoplasy_dist = std::collections::HashMap::new();
@@ -339,7 +317,7 @@ fn calculate_phs_and_lca_heights_direct(
     }
     let mut sorted_dist: Vec<_> = homoplasy_dist.iter().collect();
     sorted_dist.sort_by_key(|(k, _)| *k);
-    info!("  Homoplasy distribution: {:?}", sorted_dist);
+    debug!("  Homoplasy distribution: {:?}", sorted_dist);
     
     (homoplasy_counts, lca_heights)
 }
@@ -355,14 +333,14 @@ fn calculate_phs_pvalues(
     let n = homoplasy_counts.len();
     let mut pvalues = Vec::with_capacity(n);
     
-    info!("=== STELLARS DETAILED P-VALUE CALCULATION ===");
-    info!("Starting PHS p-value calculation with n={} pairs, k={} characters", n, k);
-    info!("Parameters: mutation_rate={:.6}, collision_probability={:.6}", mutation_rate, collision_probability);
+    debug!("=== STELLARS DETAILED P-VALUE CALCULATION ===");
+    debug!("Starting PHS p-value calculation with n={} pairs, k={} characters", n, k);
+    debug!("Parameters: mutation_rate={:.6}, collision_probability={:.6}", mutation_rate, collision_probability);
     
     // Log sample of inputs for comparison
     let sample_size = 10.min(n);
-    info!("Sample homoplasy counts (first {}): {:?}", sample_size, &homoplasy_counts[..sample_size]);
-    info!("Sample LCA heights (first {}): {:?}", sample_size, 
+    debug!("Sample homoplasy counts (first {}): {:?}", sample_size, &homoplasy_counts[..sample_size]);
+    debug!("Sample LCA heights (first {}): {:?}", sample_size, 
         &lca_heights[..sample_size].iter().map(|h| format!("{:.6}", h)).collect::<Vec<_>>());
     
     let mut ultra_low_count = 0;
@@ -410,37 +388,37 @@ fn calculate_phs_pvalues(
         
         // Log detailed information for first 10 pairs
         if i < 10 {
-            info!("Pair {}: PHS={}, height={:.6}, alpha={:.6}, beta={:.6}, prob={:.6}, p-value={:.6e}", 
+            debug!("Pair {}: PHS={}, height={:.6}, alpha={:.6}, beta={:.6}, prob={:.6}, p-value={:.6e}", 
                    i, homoplasy_count, lca_height, alpha, beta, prob, adjusted_pvalue);
             
             // Additional detail for debugging probability calculation
             let exp_term1 = -mutation_rate * lca_height;
             let exp_term2 = -mutation_rate * (1.0 - lca_height);
-            info!("    exp({:.6}) = {:.6}, exp({:.6}) = {:.6}", 
+            debug!("    exp({:.6}) = {:.6}, exp({:.6}) = {:.6}", 
                    exp_term1, exp_term1.exp(), exp_term2, exp_term2.exp());
             
             if homoplasy_count > 0 {
                 let binomial_cdf_val = binomial_cdf(homoplasy_count - 1, k, prob);
-                info!("    binomial_cdf({}, {}, {:.6}) = {:.6e}", homoplasy_count - 1, k, prob, binomial_cdf_val);
+                debug!("    binomial_cdf({}, {}, {:.6}) = {:.6e}", homoplasy_count - 1, k, prob, binomial_cdf_val);
             }
         }
         
         pvalues.push(adjusted_pvalue);
     }
     
-    info!("P-value calculation summary:");
-    info!("  Zero homoplasy pairs: {}/{} ({:.1}%)", zero_homoplasy_count, n, 100.0 * zero_homoplasy_count as f64 / n as f64);
-    info!("  Ultra-low p-values (<1e-10): {}/{} ({:.1}%)", ultra_low_count, n, 100.0 * ultra_low_count as f64 / n as f64);
-    info!("  Average probability per pair: {:.6e}", probability_sum / n as f64);
+    debug!("P-value calculation summary:");
+    debug!("  Zero homoplasy pairs: {}/{} ({:.1}%)", zero_homoplasy_count, n, 100.0 * zero_homoplasy_count as f64 / n as f64);
+    debug!("  Ultra-low p-values (<1e-10): {}/{} ({:.1}%)", ultra_low_count, n, 100.0 * ultra_low_count as f64 / n as f64);
+    debug!("  Average probability per pair: {:.6e}", probability_sum / n as f64);
     
     let min_pvalue = pvalues.iter().cloned().fold(f64::INFINITY, f64::min);
     let max_pvalue = pvalues.iter().cloned().fold(0.0, f64::max);
-    info!("  Raw p-value range: {:.2e} to {:.2e}", min_pvalue, max_pvalue);
+    debug!("  Raw p-value range: {:.2e} to {:.2e}", min_pvalue, max_pvalue);
     
     // Benjamini-Hochberg correction for multiple testing
     pvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
     
-    info!("Sorted p-values (first 10): {:?}", 
+    debug!("Sorted p-values (first 10): {:?}", 
         pvalues.iter().take(10).map(|p| format!("{:.2e}", p)).collect::<Vec<_>>());
     
     let mut min_adjusted = f64::INFINITY;
@@ -448,26 +426,26 @@ fn calculate_phs_pvalues(
         let adjusted = pvalue * (n as f64) / ((i + 1) as f64);
         
         if i < 10 {
-            info!("BH step {}: pvalue={:.8e} * {} / {} = {:.8e}", i, pvalue, n, i+1, adjusted);
+            debug!("BH step {}: pvalue={:.8e} * {} / {} = {:.8e}", i, pvalue, n, i+1, adjusted);
         }
         
         if adjusted < min_adjusted {
             min_adjusted = adjusted;
             if i < 10 {
-                info!("  -> New minimum: {:.8e}", min_adjusted);
+                debug!("  -> New minimum: {:.8e}", min_adjusted);
             }
         }
     }
     
-    info!("Final Benjamini-Hochberg corrected result: {:.10e}", min_adjusted);
+    debug!("Final Benjamini-Hochberg corrected result: {:.10e}", min_adjusted);
     
     if min_adjusted < 1e-10 {
-        info!("🚨 ULTRA-LOW STELLARS RESULT: {:.2e} - This matches the simulation issue!", min_adjusted);
-        info!("This suggests the issue is in either:");
-        info!("  1. Homoplasy overcounting (too many homoplasies detected)");
-        info!("  2. Probability miscalculation (prob values too extreme)");
-        info!("  3. Binomial CDF numerical issues");
-        info!("  4. Benjamini-Hochberg correction amplifying small errors");
+        debug!("🚨 ULTRA-LOW STELLARS RESULT: {:.2e} - This matches the simulation issue!", min_adjusted);
+        debug!("This suggests the issue is in either:");
+        debug!("  1. Homoplasy overcounting (too many homoplasies detected)");
+        debug!("  2. Probability miscalculation (prob values too extreme)");
+        debug!("  3. Binomial CDF numerical issues");
+        debug!("  4. Benjamini-Hochberg correction amplifying small errors");
     }
     
     min_adjusted

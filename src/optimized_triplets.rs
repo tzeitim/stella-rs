@@ -20,7 +20,9 @@ pub struct OptimizedTripletResult {
 /// Optimized tree data using phylo-rs inspired techniques
 struct OptimizedTreeData {
     // Fast lookups using FxHash (20-30% faster than std HashMap)
+    #[allow(dead_code)]
     taxa_to_idx: FxHashMap<String, usize>,
+    #[allow(dead_code)]
     idx_to_taxa: Vec<String>,
     n_taxa: usize,
     
