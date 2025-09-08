@@ -21,9 +21,8 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 export POLARS_MAX_THREADS=$LSB_MAX_NUM_PROCESSORS
 
 # Activate conda environment
-eval "$({CONDA_PREFIX}/bin/conda shell.bash hook)"
-source {CONDA_PREFIX}/etc/profile.d/mamba.sh
-mamba activate cass
+source {CONDA_PREFIX}/etc/profile.d/conda.sh
+conda activate cass
 
 # Validate inputs
 if [ -z "$1" ] || [ -z "$2" ]; then
@@ -32,13 +31,16 @@ if [ -z "$1" ] || [ -z "$2" ]; then
     exit 1
 fi
 
+# Change to shared directory
+cd {SHARED_DIR}
+
 # Run Cas9 recording worker
 echo "Executing Cas9 recording worker for Tier $2..."
 python cas9_recording_worker.py \
     --gt_tree_path "$1" \
     --tier "$2" \
     --output_dir cas9_instances \
-    --shared_dir .
+    --shared_dir {SHARED_DIR}
 
 exit_code=$?
 

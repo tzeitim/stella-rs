@@ -21,9 +21,8 @@ echo "Tier: $3"
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 
 # Activate conda environment
-eval "$({CONDA_PREFIX}/bin/conda shell.bash hook)"
-source {CONDA_PREFIX}/etc/profile.d/mamba.sh
-mamba activate cass
+source {CONDA_PREFIX}/etc/profile.d/conda.sh
+conda activate cass
 
 # Validate inputs
 if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
@@ -32,6 +31,9 @@ if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
     exit 1
 fi
 
+# Change to shared directory
+cd {SHARED_DIR}
+
 # Run reconstruction worker
 echo "Executing reconstruction worker with $2 solver for Tier $3..."
 python reconstruction_worker.py \
@@ -39,7 +41,7 @@ python reconstruction_worker.py \
     --solver "$2" \
     --tier "$3" \
     --output_dir results \
-    --shared_dir .
+    --shared_dir {SHARED_DIR}
 
 exit_code=$?
 
