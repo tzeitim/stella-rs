@@ -211,6 +211,9 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
                 optimized_tree,
                 mutation_rate=lam,
                 collision_probability=q,
+                missing_state=-1,
+                unedited_state=0,
+                use_provided_internal_states=True,  # Use reconstructed internal states
                 reconstruct_ancestral=False,  # Already done
                 max_threads=int(max_threads)
             )

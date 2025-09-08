@@ -4,7 +4,7 @@
 # Execution control
 execution:
   random_seed: 42  # Master seed for reproducibility
-  num_gt_instances: 10  # Test with 10 instances (0-9)
+  num_gt_instances: 100  # Test with 10 instances (0-9)
   cas9_simulations_per_gt: 10  # Generate 5 Cas9 simulations per GT for statistics
   parallel_execution: true  # Whether to run jobs in parallel
   run_name: "medium_scale_test"  # Name for this experimental run

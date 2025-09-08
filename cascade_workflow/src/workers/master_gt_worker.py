@@ -89,27 +89,33 @@ def generate_state_priors(k, m, exp):
     state_priors /= np.sum(state_priors)
     return {i: state_priors[i] for i in range(m)}
 
-def generate_ground_truth_tree():
+def generate_ground_truth_tree(config: Dict[str, Any]):
     """Generate a ground truth tree using Cassiopeia simulation"""
     logger.info("Simulating ground truth tree with birth-death model...")
     
-    # Tree configuration based on simulation_phs.py
+    # Get tree configuration from config file
+    gt_config = config.get('ground_truth', {}).get('tree_config', {})
+    
+    # Tree configuration with config values, falling back to defaults
     tree_config = {
-        'N': 1e3,  # Number of cells in original tree
-        'n': 1e2,  # Number of cells after subsampling  
+        'N': gt_config.get('N', 1e3),  # Number of cells in original tree
+        'n': gt_config.get('n', 1e2),  # Number of cells after subsampling  
         'fitness': {
             'birth_waiting_distribution': lambda scale: np.random.exponential(1/scale),
-            'initial_birth_scale': 2,
+            'initial_birth_scale': gt_config.get('fitness', {}).get('initial_birth_scale', 2),
             'death_waiting_distribution': lambda: np.inf,  # Cells don't die
             'mutation_distribution': lambda: 1 if np.random.uniform() < 0.5 else 0,
-            'fitness_distribution': lambda: np.random.normal(0.5, 0.25),
-            'fitness_base': 1.1
+            'fitness_distribution': lambda: np.random.normal(0.5, gt_config.get('fitness', {}).get('fitness_std', 0.25)),
+            'fitness_base': gt_config.get('fitness', {}).get('fitness_base', 1.1)
         },
-        'k': 50,  # Sequence length
-        'm': 50,  # Number of unique mutations
-        'rho': 0.5,  # Character mutation probability
-        'state_priors_exponents': 1e-5
+        'k': 50,  # Sequence length (can be made configurable later)
+        'm': 50,  # Number of unique mutations (can be made configurable later)
+        'rho': 0.5,  # Character mutation probability (can be made configurable later)
+        'state_priors_exponents': 1e-5  # (can be made configurable later)
     }
+    
+    logger.info(f"Tree config - N: {tree_config['N']}, n: {tree_config['n']}")
+    logger.info(f"Fitness config - base: {tree_config['fitness']['fitness_base']}, birth_scale: {tree_config['fitness']['initial_birth_scale']}")
     
     # Simulate the original tree topology
     topology_simulator = BirthDeathFitnessSimulator(
@@ -175,7 +181,7 @@ class MasterGTWorker:
             logger.info(f"Generating GT instance {instance_id + 1}/{num_instances}...")
             
             try:
-                gt_tree = generate_ground_truth_tree()
+                gt_tree = generate_ground_truth_tree(self.config)
                 
                 # Save GT tree to configured directory
                 config_shared_dir = self.config.get('output', {}).get('shared_dir', str(self.shared_dir))
