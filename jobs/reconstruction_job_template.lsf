@@ -21,7 +21,8 @@ echo "Tier: $3"
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 
 # Activate conda environment
-source {CONDA_PREFIX}/etc/profile.d/conda.sh
+eval "$(/home/projects/nyosef/pedro/miniforge3/bin/conda shell.bash hook)"
+source ~/miniforge3/etc/profile.d/mamba.sh
 conda activate cass
 
 # Validate inputs

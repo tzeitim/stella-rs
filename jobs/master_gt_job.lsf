@@ -1,5 +1,5 @@
 #!/bin/bash
-#BSUB -J master_gt_analysis
+#BSUB -J gt_master
 #BSUB -oo {SHARED_DIR}/logs/master_gt_%J.out  
 #BSUB -eo {SHARED_DIR}/logs/master_gt_%J.err
 #BSUB -W 1:00
@@ -20,7 +20,8 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 export POLARS_MAX_THREADS=$LSB_MAX_NUM_PROCESSORS
 
 # Activate conda environment
-source {CONDA_PREFIX}/etc/profile.d/conda.sh
+eval "$(/home/projects/nyosef/pedro/miniforge3/bin/conda shell.bash hook)"
+source ~/miniforge3/etc/profile.d/mamba.sh
 conda activate cass
 
 # Change to shared directory
