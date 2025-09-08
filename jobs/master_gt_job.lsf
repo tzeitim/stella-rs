@@ -1,10 +1,10 @@
 #!/bin/bash
 #BSUB -J master_gt_analysis
-#BSUB -o /shared/cas9_analysis/logs/master_gt_%J.out  
-#BSUB -e /shared/cas9_analysis/logs/master_gt_%J.err
+#BSUB -oo {SHARED_DIR}/logs/master_gt_%J.out  
+#BSUB -eo {SHARED_DIR}/logs/master_gt_%J.err
 #BSUB -W 1:00
-#BSUB -n 1
-#BSUB -M 8000
+#BSUB -n 10 -R "span[hosts=1]"
+#BSUB -R rusage[mem=1.5GB]
 
 # Master GT Job - Level 1 of Cascading LSF System
 # Generates GT tree and submits all Cas9 recording jobs
@@ -16,20 +16,26 @@ echo "Date: $(date)"
 echo "Working directory: $(pwd)"
 
 # Set up environment
-export PYTHONPATH="${PYTHONPATH}:/shared/cas9_analysis"
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+export POLARS_MAX_THREADS=$LSB_MAX_NUM_PROCESSORS
+
+# Activate conda environment
+eval "$({CONDA_PREFIX}/bin/conda shell.bash hook)"
+source {CONDA_PREFIX}/etc/profile.d/mamba.sh
+mamba activate cass
 
 # Create necessary directories
-mkdir -p /shared/cas9_analysis/logs
-mkdir -p /shared/cas9_analysis/status
-mkdir -p /shared/cas9_analysis/gt_trees
-mkdir -p /shared/cas9_analysis/cas9_instances
-mkdir -p /shared/cas9_analysis/results
+mkdir -p ../logs
+mkdir -p status
+mkdir -p gt_trees
+mkdir -p cas9_instances
+mkdir -p results
 
 # Run master GT worker
 echo "Executing master GT worker..."
-python /shared/cas9_analysis/master_gt_worker.py \
-    --output_dir /shared/cas9_analysis/gt_trees \
-    --shared_dir /shared/cas9_analysis
+python master_gt_worker.py \
+    --output_dir gt_trees \
+    --shared_dir .
 
 exit_code=$?
 

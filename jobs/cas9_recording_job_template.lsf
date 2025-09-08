@@ -1,10 +1,10 @@
 #!/bin/bash
 #BSUB -J cas9_tier{TIER}_analysis
-#BSUB -o /shared/cas9_analysis/logs/cas9_tier{TIER}_%J.out
-#BSUB -e /shared/cas9_analysis/logs/cas9_tier{TIER}_%J.err
+#BSUB -oo {SHARED_DIR}/logs/cas9_tier{TIER}_%J.out
+#BSUB -eo {SHARED_DIR}/logs/cas9_tier{TIER}_%J.err
 #BSUB -W 0:30
-#BSUB -n 1
-#BSUB -M 6000
+#BSUB -n 20 -R "span[hosts=1]"
+#BSUB -R rusage[mem=1.5GB]
 
 # Cas9 Recording Job - Level 2 of Cascading LSF System
 # Applies Cas9 recording for Tier {TIER} and submits reconstruction jobs
@@ -17,7 +17,13 @@ echo "GT Tree Path: $1"
 echo "Tier: $2"
 
 # Set up environment
-export PYTHONPATH="${PYTHONPATH}:/shared/cas9_analysis"
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+export POLARS_MAX_THREADS=$LSB_MAX_NUM_PROCESSORS
+
+# Activate conda environment
+eval "$({CONDA_PREFIX}/bin/conda shell.bash hook)"
+source {CONDA_PREFIX}/etc/profile.d/mamba.sh
+mamba activate cass
 
 # Validate inputs
 if [ -z "$1" ] || [ -z "$2" ]; then
@@ -28,11 +34,11 @@ fi
 
 # Run Cas9 recording worker
 echo "Executing Cas9 recording worker for Tier $2..."
-python /shared/cas9_analysis/cas9_recording_worker.py \
+python cas9_recording_worker.py \
     --gt_tree_path "$1" \
     --tier "$2" \
-    --output_dir /shared/cas9_analysis/cas9_instances \
-    --shared_dir /shared/cas9_analysis
+    --output_dir cas9_instances \
+    --shared_dir .
 
 exit_code=$?
 

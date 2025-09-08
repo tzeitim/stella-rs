@@ -1,10 +1,10 @@
 #!/bin/bash
 #BSUB -J reconstruct_tier{TIER}_{SOLVER}
-#BSUB -o /shared/cas9_analysis/logs/reconstruct_tier{TIER}_{SOLVER}_%J.out
-#BSUB -e /shared/cas9_analysis/logs/reconstruct_tier{TIER}_{SOLVER}_%J.err  
+#BSUB -oo {SHARED_DIR}/logs/reconstruct_tier{TIER}_{SOLVER}_%J.out
+#BSUB -eo {SHARED_DIR}/logs/reconstruct_tier{TIER}_{SOLVER}_%J.err  
 #BSUB -W 0:45
-#BSUB -n 1
-#BSUB -M 4000
+#BSUB -n 20 -R "span[hosts=1]"
+#BSUB -R rusage[mem=1.5GB]
 
 # Reconstruction Job - Level 3 of Cascading LSF System
 # Performs reconstruction with {SOLVER} solver for Tier {TIER}
@@ -18,7 +18,12 @@ echo "Solver: $2"
 echo "Tier: $3"
 
 # Set up environment
-export PYTHONPATH="${PYTHONPATH}:/shared/cas9_analysis"
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+
+# Activate conda environment
+eval "$({CONDA_PREFIX}/bin/conda shell.bash hook)"
+source {CONDA_PREFIX}/etc/profile.d/mamba.sh
+mamba activate cass
 
 # Validate inputs
 if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
@@ -29,12 +34,12 @@ fi
 
 # Run reconstruction worker
 echo "Executing reconstruction worker with $2 solver for Tier $3..."
-python /shared/cas9_analysis/reconstruction_worker.py \
+python reconstruction_worker.py \
     --cas9_instance_path "$1" \
     --solver "$2" \
     --tier "$3" \
-    --output_dir /shared/cas9_analysis/results \
-    --shared_dir /shared/cas9_analysis
+    --output_dir results \
+    --shared_dir .
 
 exit_code=$?
 
