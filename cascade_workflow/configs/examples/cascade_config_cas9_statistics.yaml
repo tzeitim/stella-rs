@@ -1,0 +1,124 @@
+# Cas9 Statistical Test Configuration - Multiple Cas9 simulations per GT
+# This configuration demonstrates generating multiple Cas9 recording simulations
+# from the same ground truth for proper statistical analysis
+
+execution:
+  random_seed: 42
+  num_gt_instances: 2  # Small number for testing  
+  cas9_simulations_per_gt: 10  # Generate 10 different Cas9 simulations per GT
+  parallel_execution: true
+  run_name: "cas9_statistical_test"
+  
+# Ground truth generation parameters - small for testing
+ground_truth:
+  tree_config:
+    N: 500   # Small tree for fast testing
+    n: 100   # Small number of characters
+    fitness:
+      initial_birth_scale: 2
+      fitness_base: 1.1
+      fitness_std: 0.25
+  
+  instance_seeds: [1001, 1002]
+
+# CAS9 tiers - each GT will generate 10 simulations per tier
+cas9_tiers:
+  1:
+    name: "High Quality Tier"
+    description: "High quality recording for robust statistics"
+    k: 20
+    cassette_size: 10
+    m: 20
+    mutation_rate_pattern: "exponential_decay"
+    base_mutation_rate: 1.5
+    state_priors_exponent: 1e-5
+    
+  2:
+    name: "Medium Quality Tier"  
+    description: "Medium quality with Cas9 recording variation"
+    k: 10
+    cassette_size: 5
+    m: 15
+    mutation_rate_pattern: "linear"
+    base_mutation_rate: 1.0
+    state_priors_exponent: 1e-4
+    
+  3:
+    name: "Low Quality Tier"
+    description: "Low quality baseline with recording variation"
+    k: 5
+    cassette_size: 3
+    m: 10
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 0.8
+    state_priors_exponent: 1e-3
+
+# Solver configuration - reliable and fast solvers
+solvers:
+  enabled:
+    - "nj"        # Always reliable and fast
+    - "vanilla"   # Fast and reliable baseline
+    - "greedy"    # Good comparison
+  
+  disabled:
+    - "maxcut"    # Very slow - disabled
+    - "spectral"  # Disable problematic solvers
+    - "smj" 
+    - "dmj"
+    - "ilp"
+  
+  reconstructions_per_solver: 1  # One reconstruction per Cas9 simulation
+  
+  solver_params:
+    nj:
+      add_root: true
+    greedy:
+      max_iterations: 1000
+
+# LSF job parameters
+lsf:
+  queues:
+    master_gt: "short"
+    cas9_recording: "short" 
+    reconstruction: "medium"
+  
+  resources:
+    master_gt:
+      cores: 5
+      memory_gb: 2.0
+      time_limit: "0:30"
+      
+    cas9_recording:
+      cores: 5
+      memory_gb: 2.0
+      time_limit: "0:30"
+      
+    reconstruction:
+      cores: 4
+      memory_gb: 4.0  
+      time_limit: "2:00"
+
+# Output and analysis  
+output:
+  shared_dir: "shared_cas9_statistical_test"
+  save_intermediate_trees: true
+  save_detailed_metrics: true
+  generate_plots: true
+  compare_across_tiers: true
+  
+  gt_prefix: "gt_cas9_stat"  
+  cas9_prefix: "cas9_stat"  
+  result_prefix: "result_cas9_stat"
+
+# Monitoring
+monitoring:
+  continuous_monitoring: true
+  check_interval: 30
+  max_job_wait_time: 1800
+  
+  notifications:
+    enabled: false
+
+debug:
+  test_mode: false
+  save_debug_info: true

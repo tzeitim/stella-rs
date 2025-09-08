@@ -1,0 +1,163 @@
+# Cascading LSF Job System Configuration - PILOT SCALE
+# This file is designed for testing the larger parameters before full-scale run
+
+# Execution control
+execution:
+  random_seed: 42  # Master seed for reproducibility
+  num_gt_instances: 1  # Single instance for testing (not 1000!)
+  parallel_execution: true  # Whether to run jobs in parallel
+  run_name: "pilot_large_trees"  # Name for this experimental run
+  
+# Ground truth generation parameters
+ground_truth:
+  tree_config:
+    N: 2000  # Moderate increase from 1000 (was 10000 in your config)
+    n: 200   # Moderate increase from 100 (was 400 in your config) 
+    fitness:
+      initial_birth_scale: 2
+      fitness_base: 1.1
+      fitness_std: 0.25
+  
+  # Seeds for each GT instance (if empty, will auto-generate) 
+  instance_seeds: [1001]  # Single seed for pilot
+
+# Cas9 simulation tiers - define recording fidelity levels
+cas9_tiers:
+  1:
+    name: "Tier 1 - Ultra High Fidelity"
+    description: "Near-perfect recording: 100 integrations × 50 sites"
+    k: 100  # number of cassettes (integrations)
+    cassette_size: 50  # sites per cassette
+    m: 50  # unique mutations per site
+    mutation_rate_pattern: "exponential_decay"  # exponential_decay, sine_wave, uniform, linear
+    base_mutation_rate: 2.0
+    state_priors_exponent: 1e-6
+    
+  2:
+    name: "Tier 2 - High Fidelity"  
+    description: "Good recording: 50 integrations × 20 sites"
+    k: 50
+    cassette_size: 20
+    m: 30
+    mutation_rate_pattern: "exponential_decay"
+    base_mutation_rate: 1.5
+    state_priors_exponent: 1e-5
+    
+  3:
+    name: "Tier 3 - Medium Fidelity"
+    description: "Moderate recording: 20 integrations × 10 sites"
+    k: 20
+    cassette_size: 10
+    m: 20
+    mutation_rate_pattern: "linear"
+    base_mutation_rate: 1.0
+    state_priors_exponent: 1e-4
+    
+  4:
+    name: "Tier 4 - Low Fidelity"
+    description: "Poor recording: 5 integrations × 3 sites"
+    k: 5
+    cassette_size: 3
+    m: 10
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 0.8
+    state_priors_exponent: 1e-3
+
+# Solver configuration
+solvers:
+  enabled:
+    - "nj"
+    - "maxcut" 
+    - "greedy"
+    - "vanilla"
+  
+  # Disabled solvers (comment out to enable)
+  disabled:
+    - "spectral"
+    - "smj" 
+    - "dmj"
+    - "ilp"
+  
+  # Number of reconstruction attempts per solver per tier (not implemented yet)
+  reconstructions_per_solver: 1  # Keep at 1 for now
+  
+  # Solver-specific parameters
+  solver_params:
+    nj:
+      add_root: true
+    maxcut:
+      time_limit: 600  # Increased from 300s due to larger trees
+    greedy:
+      max_iterations: 2000  # Increased from 1000
+
+# LSF job parameters - INCREASED FOR LARGER TREES
+lsf:
+  queues:
+    master_gt: "short"
+    cas9_recording: "short" 
+    reconstruction: "medium"  # Longer queue for bigger reconstructions
+  
+  resources:
+    master_gt:
+      cores: 20  # Increased from 15
+      memory_gb: 3.0  # Increased from 1.5GB
+      time_limit: "2:00"  # Increased from 1:00
+      
+    cas9_recording:
+      cores: 25  # Increased from 20
+      memory_gb: 3.0  # Increased from 1.5GB
+      time_limit: "1:00"  # Increased from 0:30
+      
+    reconstruction:
+      cores: 5  # Increased from 3
+      memory_gb: 4.0  # Increased from 1.5GB
+      time_limit: "3:00"  # Increased from 0:45 - bigger trees take longer
+      
+  # log_dir is now derived from shared_dir/logs - no hardcoded paths
+
+# Output and analysis  
+output:
+  shared_dir: "shared_pilot"
+  save_intermediate_trees: true
+  save_detailed_metrics: true
+  
+  # Analysis options
+  generate_plots: false
+  compare_across_tiers: true
+  
+  # File naming
+  gt_prefix: "gt_pilot"  
+  cas9_prefix: "cas9_pilot"  
+  result_prefix: "result_pilot"   
+
+# Monitoring
+monitoring:
+  continuous_monitoring: true
+  check_interval: 60  # seconds
+  max_job_wait_time: 7200  # 2 hours (increased from 1 hour)
+  
+  # Email notifications (optional)
+  notifications:
+    enabled: false
+    email: "user@example.com" 
+    on_completion: true
+    on_failure: true
+
+# Debug and development
+debug:
+  verbose_logging: true
+  save_debug_info: true
+  test_mode: false
+  
+  # Test mode parameters (overrides main config when test_mode: true)
+  test_params:
+    num_gt_instances: 1
+    ground_truth:
+      tree_config:
+        N: 500
+        n: 50
+    cas9_tiers:
+      1: {k: 5, cassette_size: 3, m: 10}
+      2: {k: 3, cassette_size: 2, m: 5}
+    solvers: ["nj", "greedy"]
+    reconstructions_per_solver: 1

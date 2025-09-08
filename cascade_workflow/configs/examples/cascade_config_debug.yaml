@@ -1,0 +1,99 @@
+# DEBUG Configuration - Minimal test to verify NaN fixes
+execution:
+  random_seed: 42
+  num_gt_instances: 1
+  parallel_execution: true
+  run_name: "debug_nan_fixes"
+  
+ground_truth:
+  tree_config:
+    N: 500    # Small tree
+    n: 50     # Few leaves
+    fitness:
+      initial_birth_scale: 2
+      fitness_base: 1.1
+      fitness_std: 0.25
+  
+  instance_seeds: [9999]
+
+# Only test one tier with minimal parameters
+cas9_tiers:
+  4:  # Use lowest tier for fastest testing
+    name: "Debug - Low Fidelity"
+    description: "Minimal recording for debug"
+    k: 3       # Very small
+    cassette_size: 2
+    m: 5
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 0.8
+    state_priors_exponent: 1e-3
+
+# Test only two solvers
+solvers:
+  enabled:
+    - "nj"
+    - "greedy"
+  disabled:
+    - "maxcut"
+    - "vanilla"
+    - "spectral"
+    - "smj"
+    - "dmj"
+    - "ilp"
+  
+  reconstructions_per_solver: 1
+  
+  solver_params:
+    nj:
+      add_root: true
+    greedy:
+      max_iterations: 500
+
+# Minimal LSF resources
+lsf:
+  queues:
+    master_gt: "short"
+    cas9_recording: "short"
+    reconstruction: "short"
+  
+  resources:
+    master_gt:
+      cores: 5
+      memory_gb: 1.0
+      time_limit: "0:30"
+      
+    cas9_recording:
+      cores: 5
+      memory_gb: 1.0
+      time_limit: "0:15"
+      
+    reconstruction:
+      cores: 3
+      memory_gb: 2.0
+      time_limit: "0:30"
+      
+  # log_dir is now derived from shared_dir/logs - no hardcoded paths
+
+output:
+  shared_dir: "shared_debug"
+  save_intermediate_trees: true
+  save_detailed_metrics: true
+  generate_plots: false
+  compare_across_tiers: false
+  
+  gt_prefix: "gt_debug"
+  cas9_prefix: "cas9_debug"
+  result_prefix: "result_debug"
+
+monitoring:
+  continuous_monitoring: true
+  check_interval: 30
+  max_job_wait_time: 1800  # 30 minutes
+  
+  notifications:
+    enabled: false
+
+debug:
+  verbose_logging: true
+  save_debug_info: true
+  test_mode: false

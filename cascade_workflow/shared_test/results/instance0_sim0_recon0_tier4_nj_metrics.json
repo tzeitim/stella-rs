@@ -1,0 +1,35 @@
+{
+  "reconstruction_id": "instance0_sim0_recon0_tier4_nj",
+  "gt_instance_id": 0,
+  "cas9_simulation_id": 0,
+  "reconstruction_num": 0,
+  "cas9_tier": 4,
+  "cas9_tier_name": "Low Fidelity",
+  "recording_sites": 15,
+  "solver": "nj",
+  "computation_time_seconds": 12.079960584640503,
+  "triplets_distance": 0.4080581323438466,
+  "RF_distance": 0.3239795918367347,
+  "parsimony_score": {
+    "parsimony_score": 441,
+    "total_mutations": 441,
+    "computation_time_ms": 0.104057,
+    "method_used": "small_mp_inferred",
+    "internal_states_inferred": true
+  },
+  "cPHS": 9.901989138548694e-15,
+  "likelihood_score": {
+    "log_likelihood": -2461.734895617307,
+    "likelihood": 0.0,
+    "computation_time_ms": 0.146251,
+    "method_used": "crispr_cas9_model",
+    "n_characters": 15,
+    "n_leaves": 100
+  },
+  "worker_info": {
+    "cas9_instance_path": "cas9_instances/instance0_sim0_tier4_instance.pkl",
+    "solver": "nj",
+    "tier": 4,
+    "tier_name": "Low Fidelity"
+  }
+}

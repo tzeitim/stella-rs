@@ -1,0 +1,159 @@
+# Cascading LSF Job System Configuration
+# This file controls all major parameters for reproducibility and scalability
+
+# Execution control
+execution:
+  random_seed: 42  # Master seed for reproducibility
+  num_gt_instances: 1000  # Number of ground truth trees to generate
+  parallel_execution: true  # Whether to run jobs in parallel
+  run_name: "default_run"  # Name for this experimental run
+  
+# Ground truth generation parameters
+ground_truth:
+  tree_config:
+    N: 10000  # Number of cells in original tree
+    n: 400   # Number of cells in subsampled tree
+    fitness:
+      initial_birth_scale: 2
+      fitness_base: 1.1
+      fitness_std: 0.25
+  
+  # Seeds for each GT instance (if empty, will auto-generate) 
+  instance_seeds: [100, 200]  # If Only 2 seeds for 4 instances - will auto-generate missing
+
+# Cas9 simulation tiers - define recording fidelity levels
+cas9_tiers:
+  1:
+    name: "Tier 1 - Ultra High Fidelity"
+    description: "Near-perfect recording: 100 integrations × 50 sites"
+    k: 100  # number of cassettes (integrations)
+    cassette_size: 50  # sites per cassette
+    m: 50  # unique mutations per site
+    mutation_rate_pattern: "exponential_decay"  # exponential_decay, sine_wave, uniform, linear
+    base_mutation_rate: 2.0
+    state_priors_exponent: 1e-6
+    
+  2:
+    name: "Tier 2 - High Fidelity"  
+    description: "Good recording: 50 integrations × 20 sites"
+    k: 50
+    cassette_size: 20
+    m: 30
+    mutation_rate_pattern: "exponential_decay"
+    base_mutation_rate: 1.5
+    state_priors_exponent: 1e-5
+    
+  3:
+    name: "Tier 3 - Medium Fidelity"
+    description: "Moderate recording: 20 integrations × 10 sites"
+    k: 20
+    cassette_size: 10
+    m: 20
+    mutation_rate_pattern: "linear"
+    base_mutation_rate: 1.0
+    state_priors_exponent: 1e-4
+    
+  4:
+    name: "Tier 4 - Low Fidelity"
+    description: "Poor recording: 5 integrations × 3 sites"
+    k: 5
+    cassette_size: 3
+    m: 10
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 0.8
+    state_priors_exponent: 1e-3
+
+# Solver configuration
+solvers:
+  enabled:
+    - "nj"
+    - "maxcut" 
+    - "greedy"
+    - "vanilla"
+  
+  # Disabled solvers (comment out to enable)
+  disabled:
+    - "spectral"
+    - "smj" 
+    - "dmj"
+    - "ilp"
+  
+  # Number of reconstruction attempts per solver per tier
+  reconstructions_per_solver: 10
+  
+  # Solver-specific parameters
+  solver_params:
+    nj:
+      add_root: true
+    maxcut:
+      time_limit: 300  # seconds
+    greedy:
+      max_iterations: 1000
+
+# LSF job parameters
+lsf:
+  queues:
+    master_gt: "short"
+    cas9_recording: "short" 
+    reconstruction: "short"
+  
+  resources:
+    master_gt:
+      cores: 15
+      memory_gb: 1.5
+      time_limit: "1:00"  # HH:MM
+      
+    cas9_recording:
+      cores: 20 
+      memory_gb: 1.5
+      time_limit: "0:30"
+      
+    reconstruction:
+      cores: 3
+      memory_gb: 1.5  
+      time_limit: "0:45"
+      
+  # log_dir is now derived from shared_dir/logs - no hardcoded paths
+
+# Output and analysis  
+output:
+  shared_dir: "shared_medium"
+  save_intermediate_trees: true
+  save_detailed_metrics: true
+  
+  # Analysis options
+  generate_plots: false
+  compare_across_tiers: true
+  
+  # File naming
+  gt_prefix: "gt_instance"  # gt_instance_001.pkl, gt_instance_002.pkl, etc.
+  cas9_prefix: "cas9_tier"  # cas9_tier1_instance_001.pkl
+  result_prefix: "result"   # result_tier1_nj_instance_001.json
+
+# Monitoring
+monitoring:
+  continuous_monitoring: true
+  check_interval: 60  # seconds
+  max_job_wait_time: 3600  # seconds before considering job stuck
+  
+  # Email notifications (optional)
+  notifications:
+    enabled: false
+    email: "user@example.com" 
+    on_completion: true
+    on_failure: true
+
+# Debug and development
+debug:
+  verbose_logging: true
+  save_debug_info: true
+  test_mode: false  # If true, run with smaller parameters for testing
+  
+  # Test mode parameters (overrides main config when test_mode: true)
+  test_params:
+    num_gt_instances: 1
+    cas9_tiers:
+      1: {k: 5, cassette_size: 3, m: 10}
+      2: {k: 3, cassette_size: 2, m: 5}
+    solvers: ["nj", "greedy"]
+    reconstructions_per_solver: 1

@@ -1,0 +1,127 @@
+# Statistical Test Configuration - Demonstrates Per-Tier Reconstruction Control
+# This configuration shows how to get robust statistics for different tiers
+
+execution:
+  random_seed: 42
+  num_gt_instances: 2  # Small number for testing
+  parallel_execution: true
+  run_name: "statistical_test"
+  
+# Ground truth generation parameters - small for testing
+ground_truth:
+  tree_config:
+    N: 500   # Small tree for fast testing
+    n: 100   # Small number of characters
+    fitness:
+      initial_birth_scale: 2
+      fitness_base: 1.1
+      fitness_std: 0.25
+  
+  instance_seeds: [1001, 1002]
+
+# CAS9 tiers with statistical focus - more reconstructions for better tiers
+cas9_tiers:
+  1:
+    name: "Statistical Tier 1 - High Quality"
+    description: "High quality recording for robust statistics"
+    k: 20
+    cassette_size: 10
+    m: 20
+    mutation_rate_pattern: "exponential_decay"
+    base_mutation_rate: 1.5
+    state_priors_exponent: 1e-5
+    reconstructions_per_solver: 10  # 10 reconstructions for strong statistics
+    
+  2:
+    name: "Statistical Tier 2 - Medium Quality"  
+    description: "Medium quality with moderate statistics"
+    k: 10
+    cassette_size: 5
+    m: 15
+    mutation_rate_pattern: "linear"
+    base_mutation_rate: 1.0
+    state_priors_exponent: 1e-4
+    reconstructions_per_solver: 5   # 5 reconstructions for basic confidence intervals
+    
+  3:
+    name: "Statistical Tier 3 - Low Quality"
+    description: "Low quality baseline - minimal statistics"
+    k: 5
+    cassette_size: 3
+    m: 10
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 0.8
+    state_priors_exponent: 1e-3
+    reconstructions_per_solver: 3   # 3 reconstructions for basic comparison
+
+# Solver configuration - focus on reliable and fast solvers for statistics
+solvers:
+  enabled:
+    - "nj"        # Always reliable and fast
+    - "vanilla"   # Fast and reliable baseline
+    - "greedy"    # Good comparison
+  
+  disabled:
+    - "maxcut"    # Very slow - disabled
+    - "spectral"  # Disable problematic solvers for clean statistical analysis
+    - "smj" 
+    - "dmj"
+    - "ilp"
+  
+  reconstructions_per_solver: 1  # Global fallback (not used due to per-tier settings)
+  
+  solver_params:
+    nj:
+      add_root: true
+    maxcut:
+      time_limit: 300  # 5 minutes
+    greedy:
+      max_iterations: 1000
+
+# LSF job parameters - optimized for statistical runs
+lsf:
+  queues:
+    master_gt: "short"
+    cas9_recording: "short" 
+    reconstruction: "medium"  # Medium queue for multiple reconstructions
+  
+  resources:
+    master_gt:
+      cores: 5
+      memory_gb: 2.0
+      time_limit: "0:30"
+      
+    cas9_recording:
+      cores: 5
+      memory_gb: 2.0
+      time_limit: "0:30"
+      
+    reconstruction:
+      cores: 4
+      memory_gb: 4.0  
+      time_limit: "2:00"  # More time for multiple reconstructions
+
+# Output and analysis  
+output:
+  shared_dir: "shared_statistical_test"
+  save_intermediate_trees: true
+  save_detailed_metrics: true
+  generate_plots: true  # Enable plots for statistical analysis
+  compare_across_tiers: true
+  
+  gt_prefix: "gt_stat"  
+  cas9_prefix: "cas9_stat"  
+  result_prefix: "result_stat"
+
+# Monitoring
+monitoring:
+  continuous_monitoring: true
+  check_interval: 30
+  max_job_wait_time: 1800  # 30 minutes for statistical runs
+  
+  notifications:
+    enabled: false
+
+debug:
+  test_mode: false
+  save_debug_info: true

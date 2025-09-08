@@ -1,0 +1,44 @@
+#!/bin/bash
+#BSUB -J gt_master
+#BSUB -oo {SHARED_DIR}/logs/master_gt_%J.out  
+#BSUB -eo {SHARED_DIR}/logs/master_gt_%J.err
+#BSUB -W 1:00
+#BSUB -n 10 -R "span[hosts=1]"
+#BSUB -R rusage[mem=1.5GB]
+
+# Master GT Job - Level 1 of Cascading LSF System
+# Generates GT tree and submits all Cas9 recording jobs
+
+echo "=== Master GT Job Starting ==="
+echo "Job ID: $LSB_JOBID"
+echo "Host: $HOSTNAME" 
+echo "Date: $(date)"
+echo "Working directory: $(pwd)"
+
+# Set up environment
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+export POLARS_MAX_THREADS=$LSB_MAX_NUM_PROCESSORS
+
+# Activate conda environment
+eval "$(/home/projects/nyosef/pedro/miniforge3/bin/conda shell.bash hook)"
+source ~/miniforge3/etc/profile.d/mamba.sh
+conda activate cass
+
+# Change to shared directory
+cd {SHARED_DIR}
+
+# Run master GT worker
+echo "Executing master GT worker..."
+python master_gt_worker.py \
+    --output_dir gt_trees \
+    --shared_dir {SHARED_DIR}
+
+exit_code=$?
+
+if [ $exit_code -eq 0 ]; then
+    echo "=== Master GT Job Completed Successfully ==="
+else
+    echo "=== Master GT Job Failed with exit code: $exit_code ==="
+fi
+
+exit $exit_code

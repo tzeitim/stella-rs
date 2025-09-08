@@ -1,0 +1,35 @@
+{
+  "reconstruction_id": "instance0_sim0_recon0_tier4_greedy",
+  "gt_instance_id": 0,
+  "cas9_simulation_id": 0,
+  "reconstruction_num": 0,
+  "cas9_tier": 4,
+  "cas9_tier_name": "Low Fidelity",
+  "recording_sites": 15,
+  "solver": "greedy",
+  "computation_time_seconds": 0.9351887702941895,
+  "triplets_distance": 0.21299319727891153,
+  "RF_distance": 0.31088082901554404,
+  "parsimony_score": {
+    "parsimony_score": 420,
+    "total_mutations": 420,
+    "computation_time_ms": 0.08670699999999999,
+    "method_used": "small_mp_inferred",
+    "internal_states_inferred": true
+  },
+  "cPHS": 1.0083677012650505e-14,
+  "likelihood_score": {
+    "log_likelihood": -2328.0236467891696,
+    "likelihood": 0.0,
+    "computation_time_ms": 0.10285899999999999,
+    "method_used": "crispr_cas9_model",
+    "n_characters": 15,
+    "n_leaves": 100
+  },
+  "worker_info": {
+    "cas9_instance_path": "cas9_instances/instance0_sim0_tier4_instance.pkl",
+    "solver": "greedy",
+    "tier": 4,
+    "tier_name": "Low Fidelity"
+  }
+}

@@ -1,0 +1,127 @@
+cas9_tiers:
+  1:
+    base_mutation_rate: 2.0
+    cassette_size: 50
+    description: "Near-perfect recording: 100 integrations \xD7 50 sites"
+    k: 100
+    m: 50
+    mutation_rate_pattern: exponential_decay
+    name: Tier 1 - Ultra High Fidelity
+    state_priors_exponent: 1e-6
+  2:
+    base_mutation_rate: 1.5
+    cassette_size: 20
+    description: "Good recording: 50 integrations \xD7 20 sites"
+    k: 50
+    m: 30
+    mutation_rate_pattern: sine_wave
+    name: Tier 2 - High Fidelity
+    state_priors_exponent: 1e-5
+  3:
+    base_mutation_rate: 1.0
+    cassette_size: 10
+    description: "Moderate recording: 20 integrations \xD7 10 sites"
+    k: 20
+    m: 20
+    mutation_rate_pattern: linear
+    name: Tier 3 - Medium Fidelity
+    state_priors_exponent: 1e-4
+  4:
+    base_mutation_rate: 0.8
+    cassette_size: 3
+    description: "Poor recording: 5 integrations \xD7 3 sites"
+    k: 5
+    m: 10
+    mutation_rate_pattern: uniform
+    name: Tier 4 - Low Fidelity
+    state_priors_exponent: 1e-3
+debug:
+  save_debug_info: true
+  test_mode: false
+  test_params:
+    cas9_tiers:
+      1:
+        cassette_size: 3
+        k: 5
+        m: 10
+      2:
+        cassette_size: 2
+        k: 3
+        m: 5
+    num_gt_instances: 1
+    reconstructions_per_solver: 1
+    solvers:
+    - nj
+    - greedy
+  verbose_logging: true
+execution:
+  num_gt_instances: 4
+  parallel_execution: true
+  random_seed: 600
+ground_truth:
+  instance_seeds:
+  - 100
+  - 200
+  tree_config:
+    N: 1000
+    fitness:
+      fitness_base: 1.1
+      fitness_std: 0.25
+      initial_birth_scale: 2
+    n: 100
+lsf:
+  # log_dir is now derived from shared_dir/logs - no hardcoded paths
+  queues:
+    cas9_recording: short
+    master_gt: short
+    reconstruction: short
+  resources:
+    cas9_recording:
+      cores: 20
+      memory_gb: 1.5
+      time_limit: 0:30
+    master_gt:
+      cores: 15
+      memory_gb: 1.5
+      time_limit: '1:00'
+    reconstruction:
+      cores: 3
+      memory_gb: 1.5
+      time_limit: 0:45
+monitoring:
+  check_interval: 60
+  continuous_monitoring: true
+  max_job_wait_time: 3600
+  notifications:
+    email: user@example.com
+    enabled: false
+    on_completion: true
+    on_failure: true
+output:
+  cas9_prefix: cas9_tier_002
+  compare_across_tiers: true
+  generate_plots: false
+  gt_prefix: gt_instance_002
+  result_prefix: result_002
+  save_detailed_metrics: true
+  save_intermediate_trees: true
+  shared_dir: shared
+solvers:
+  disabled:
+  - spectral
+  - smj
+  - dmj
+  - ilp
+  enabled:
+  - nj
+  - maxcut
+  - greedy
+  - vanilla
+  reconstructions_per_solver: 1
+  solver_params:
+    greedy:
+      max_iterations: 1000
+    maxcut:
+      time_limit: 300
+    nj:
+      add_root: true

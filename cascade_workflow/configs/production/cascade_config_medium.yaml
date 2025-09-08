@@ -1,0 +1,143 @@
+# Cascading LSF Job System Configuration - MEDIUM SCALE
+# This configuration tests larger trees with moderate number of instances
+
+# Execution control
+execution:
+  random_seed: 42  # Master seed for reproducibility
+  num_gt_instances: 10  # Test with 10 instances (0-9)
+  cas9_simulations_per_gt: 10  # Generate 5 Cas9 simulations per GT for statistics
+  parallel_execution: true  # Whether to run jobs in parallel
+  run_name: "medium_scale_test"  # Name for this experimental run
+  
+# Ground truth generation parameters
+ground_truth:
+  tree_config:
+    N: 1500 # Full simulated population: Total number of cells in the original simulated tree 
+    n: 1000  #  Observed/sampled population: Number of cells actually "sequenced" or analyzed 
+    fitness:
+      initial_birth_scale: 2
+      #fitness_base: 1.1  # or 1.0          # NO fitness advantage (neutral)
+      fitness_base: 1.0
+      #fitness_std: 0.25  # 0.0
+      fitness_std: 0.0
+  
+  # Seeds for each GT instance (if empty, will auto-generate) 
+  instance_seeds: []  # Empty for auto-generation of 13 instances
+
+# Cas9 simulation tiers - each GT will generate 5 simulations per tier
+cas9_tiers:
+  1:
+    name: "Tier 1 - Ultra High Fidelity"
+    description: "Near-perfect recording: 100 integrations × 50 sites"
+    k: 100  # number of cassettes (integrations)
+    cassette_size: 50  # sites per cassette
+    m: 50  # unique mutations per site
+    mutation_rate_pattern: "exponential_decay"
+    base_mutation_rate: 2.0
+    state_priors_exponent: 1e-6
+    
+  2:
+    name: "Tier 2 - High Fidelity"  
+    description: "Good recording: 50 integrations × 20 sites"
+    k: 10
+    cassette_size: 10
+    m: 20
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 1.5
+    state_priors_exponent: 1e-5
+    
+  3:
+    name: "Tier 3 - Medium Fidelity"
+    description: "Moderate recording: 20 integrations × 10 sites"
+    k: 5
+    cassette_size: 3
+    m: 20
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 1.0
+    state_priors_exponent: 1e-4
+    
+  4:
+    name: "Tier 4 - Low Fidelity"
+    description: "Poor recording: 5 integrations × 3 sites"
+    k: 5
+    cassette_size: 3
+    m: 10
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 0.8
+    state_priors_exponent: 1e-3
+
+# Solver configuration
+solvers:
+  enabled:
+    - "nj"
+    - "vanilla"
+    - "greedy"
+    - "maxcut"  
+  
+  disabled:
+    - "dmj"     # Disabled due to DistanceSolver issues
+    - "ilp"
+    - "spectral"
+    - "smj" 
+  
+  reconstructions_per_solver: 1  # Reconstructions per solver per Cas9 simulation
+  
+  # Solver-specific parameters
+  solver_params:
+    nj:
+      add_root: true
+    maxcut:
+      time_limit: 900  # 15 minutes for larger trees
+    greedy:
+      max_iterations: 3000
+
+# LSF job parameters - FURTHER INCREASED FOR LARGER TREES
+lsf:
+  queues:
+    master_gt: "medium"
+    cas9_recording: "medium" 
+    reconstruction: "long"  # Long queue for big reconstructions
+  
+  resources:
+    master_gt:
+      cores: 30  # More cores for bigger trees
+      memory_gb: 6.0  # More memory
+      time_limit: "4:00"  # 4 hours
+      
+    cas9_recording:
+      cores: 35
+      memory_gb: 6.0
+      time_limit: "2:00"  # 2 hours
+      
+    reconstruction:
+      cores: 8
+      memory_gb: 8.0  # 8GB for large reconstructions
+      time_limit: "6:00"  # 6 hours maximum per reconstruction
+      
+  # log_dir is now derived from shared_dir/logs - no hardcoded paths
+
+# Output and analysis  
+output:
+  shared_dir: "shared_ny"
+  save_intermediate_trees: true
+  save_detailed_metrics: true
+  generate_plots: false
+  compare_across_tiers: true
+  
+  gt_prefix: "gt_medium"  
+  cas9_prefix: "cas9_medium"  
+  result_prefix: "result_medium"
+
+# Monitoring
+monitoring:
+  continuous_monitoring: true
+  check_interval: 120  # Check every 2 minutes
+  max_job_wait_time: 21600  # 6 hours timeout
+  
+  notifications:
+    enabled: false
+
+debug:
+  verbose_logging: true
+  save_debug_info: true
+  test_mode: false

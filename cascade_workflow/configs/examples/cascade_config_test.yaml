@@ -1,0 +1,104 @@
+# Test Configuration - Small Scale for Path Testing
+execution:
+  random_seed: 42
+  num_gt_instances: 1  # Just 1 instance
+  cas9_simulations_per_gt: 2  # Test multiple simulations per GT
+  parallel_execution: true
+  run_name: "path_fix_test"
+  
+# Ground truth generation parameters - small tree
+ground_truth:
+  tree_config:
+    N: 100  # Small tree for fast testing
+    n: 50   # Small number of characters
+    fitness:
+      initial_birth_scale: 2
+      fitness_base: 1.1
+      fitness_std: 0.25
+  
+  instance_seeds: [1001]
+
+# CAS9 tiers - simplified for testing
+cas9_tiers:
+  1:
+    name: "Test Tier 1"
+    description: "Quick test: 5 integrations × 3 sites"
+    k: 5
+    cassette_size: 3
+    m: 10
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 1.0
+    state_priors_exponent: 1e-4
+
+# Solver configuration - just two solvers for testing
+solvers:
+  enabled:
+    - "nj"
+    - "greedy"
+  
+  disabled:
+    - "maxcut" 
+    - "vanilla"
+    - "spectral"
+    - "smj" 
+    - "dmj"
+    - "ilp"
+  
+  reconstructions_per_solver: 1
+  
+  solver_params:
+    nj:
+      add_root: true
+    greedy:
+      max_iterations: 1000
+
+# LSF job parameters - minimal resources
+lsf:
+  queues:
+    master_gt: "short"
+    cas9_recording: "short" 
+    reconstruction: "short"
+  
+  resources:
+    master_gt:
+      cores: 5
+      memory_gb: 1.0
+      time_limit: "0:15"
+      
+    cas9_recording:
+      cores: 5
+      memory_gb: 1.0
+      time_limit: "0:15"
+      
+    reconstruction:
+      cores: 3
+      memory_gb: 1.0
+      time_limit: "0:15"
+      
+  # log_dir is now derived from shared_dir/logs - no hardcoded paths
+
+# Output and analysis  
+output:
+  shared_dir: "shared_test"
+  save_intermediate_trees: true
+  save_detailed_metrics: true
+  generate_plots: false
+  compare_across_tiers: true
+  
+  gt_prefix: "gt_test"  
+  cas9_prefix: "cas9_test"  
+  result_prefix: "result_test"
+
+# Monitoring
+monitoring:
+  continuous_monitoring: true
+  check_interval: 30
+  max_job_wait_time: 900  # 15 minutes
+  
+  notifications:
+    enabled: false
+
+debug:
+  verbose_logging: true
+  save_debug_info: true
+  test_mode: false
