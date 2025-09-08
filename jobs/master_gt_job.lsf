@@ -27,13 +27,6 @@ conda activate cass
 # Change to shared directory
 cd {SHARED_DIR}
 
-# Create necessary directories
-mkdir -p logs
-mkdir -p status
-mkdir -p gt_trees
-mkdir -p cas9_instances
-mkdir -p results
-
 # Run master GT worker
 echo "Executing master GT worker..."
 python master_gt_worker.py \
