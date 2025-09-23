@@ -1,0 +1,54 @@
+#!/bin/bash
+#BSUB -J cas9_tier{TIER}
+#BSUB -oo /home/projects/nyosef/pedro/src/stella-rs/cascade_workflow/src/core/oishared_ny/logs/cas9_tier{TIER}_%J.out
+#BSUB -eo /home/projects/nyosef/pedro/src/stella-rs/cascade_workflow/src/core/oishared_ny/logs/cas9_tier{TIER}_%J.err
+#BSUB -W 0:30
+#BSUB -n 20 -R "span[hosts=1]"
+#BSUB -R rusage[mem=1.5GB]
+
+# Cas9 Recording Job - Level 2 of Cascading LSF System
+# Applies Cas9 recording for Tier {TIER} and submits reconstruction jobs
+
+echo "=== Cas9 Recording Job Starting - Tier {TIER} ==="
+echo "Job ID: $LSB_JOBID"
+echo "Host: $HOSTNAME"
+echo "Date: $(date)"
+echo "GT Tree Path: $1"
+echo "Tier: $2"
+
+# Set up environment
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+export POLARS_MAX_THREADS=$LSB_MAX_NUM_PROCESSORS
+
+# Activate conda environment
+eval "$(/home/projects/nyosef/pedro/miniforge3/bin/conda shell.bash hook)"
+source ~/miniforge3/etc/profile.d/mamba.sh
+conda activate cass
+
+# Validate inputs
+if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "ERROR: Missing required arguments"
+    echo "Usage: cas9_recording_job.lsf <gt_tree_path> <tier>"
+    exit 1
+fi
+
+# Change to shared directory
+cd /home/projects/nyosef/pedro/src/stella-rs/cascade_workflow/src/core/oishared_ny
+
+# Run Cas9 recording worker
+echo "Executing Cas9 recording worker for Tier $2..."
+python cas9_recording_worker.py \
+    --gt_tree_path "$1" \
+    --tier "$2" \
+    --output_dir cas9_instances \
+    --shared_dir /home/projects/nyosef/pedro/src/stella-rs/cascade_workflow/src/core/oishared_ny
+
+exit_code=$?
+
+if [ $exit_code -eq 0 ]; then
+    echo "=== Cas9 Recording Job Completed Successfully - Tier {TIER} ==="
+else
+    echo "=== Cas9 Recording Job Failed with exit code: $exit_code - Tier {TIER} ==="
+fi
+
+exit $exit_code

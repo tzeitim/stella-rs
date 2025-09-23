@@ -11,7 +11,12 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
+import importlib.util
+
+# Import solver validation functions and config loader
+sys.path.append(str(Path(__file__).parent.parent / "utils"))
 from config_loader import load_config
+from solver_config import validate_requested_solvers, get_enabled_solvers, get_supported_solvers_info
 
 logging.basicConfig(
     level=logging.INFO,
@@ -219,7 +224,24 @@ def main():
     logger.info(f"Loaded configuration from: {args.config}")
     logger.info(f"GT instances to generate: {config_obj.config['execution']['num_gt_instances']}")
     logger.info(f"Enabled solvers: {config_obj.config['solvers']['enabled']}")
-    
+
+    # Validate that all requested solvers are supported
+    requested_solvers = config_obj.config['solvers']['enabled']
+    is_valid, unsupported_solvers = validate_requested_solvers(requested_solvers)
+
+    if not is_valid:
+        supported_solvers = get_enabled_solvers()
+        logger.error("=" * 60)
+        logger.error("❌ SOLVER VALIDATION FAILED!")
+        logger.error(f"Unsupported solvers in config: {unsupported_solvers}")
+        logger.error(f"Supported solvers in workflow: {supported_solvers}")
+        logger.error("=" * 60)
+        logger.error("Please update your configuration to only include supported solvers.")
+        logger.error("Alternatively, enable the required solvers in solver_config.py")
+        sys.exit(1)
+
+    logger.info("✓ Solver validation passed")
+
     # Calculate expected total jobs with cas9_simulations_per_gt
     num_gt_instances = config_obj.config['execution']['num_gt_instances']
     cas9_simulations_per_gt = config_obj.config['execution'].get('cas9_simulations_per_gt', 1)
@@ -294,6 +316,31 @@ def main():
             logger.info(f"  python {monitor_script} --shared_dir {shared_dir}")
             logger.info("\nTo monitor continuously:")
             logger.info(f"  python {monitor_script} --shared_dir {shared_dir} --continuous")
+
+            # Determine aggregation script path
+            utils_dir = Path(__file__).parent.parent / "utils"
+            if utils_dir.exists():
+                aggregate_script = utils_dir / "aggregate_results.py"
+            else:
+                aggregate_script = Path(__file__).parent / "aggregate_results.py"
+
+            logger.info("\nTo aggregate results when complete:")
+            logger.info(f"  python {aggregate_script} --results_dir {shared_dir}/partitioned_results --output {shared_dir}/consolidated_results.parquet")
+
+            # Also show the dedicated partitioned results reader
+            partitioned_reader = utils_dir / "read_partitioned_results.py"
+            if partitioned_reader.exists():
+                logger.info(f"\nTo read/analyze partitioned results:")
+                logger.info(f"  python {partitioned_reader} --results_dir {shared_dir}/partitioned_results --summary")
+
+            # Determine diagram script path - check root directory
+            root_dir = Path(__file__).parent.parent.parent.parent
+            diagram_script = root_dir / "generate_workflow_diagram.py"
+
+            logger.info("\nTo generate workflow diagram:")
+            logger.info(f"  python {diagram_script} {args.config}")
+
+
             logger.info("\nExpected job flow:")
             logger.info(f"  1. Master GT job (generates {num_gt_instances} GT trees, submits {cas9_jobs} Cas9 jobs)")
             logger.info(f"  2. {cas9_jobs} Cas9 recording jobs (each submits {num_solvers * reconstructions_per_solver} reconstruction jobs)")

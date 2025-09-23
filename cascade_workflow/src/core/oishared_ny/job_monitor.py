@@ -217,69 +217,35 @@ class JobMonitor:
                     ]
                     file_status['cas9_instances'][f'instance{instance}_sim{sim}_tier{tier}'] = any(path.exists() for path in cas9_file_paths)
         
-        # Check results - Updated for partitioned parquet format
+        # Check results - multiple per GT instance and simulation
         active_solvers = self.config.get('solvers', {}).get('enabled', ['nj', 'maxcut', 'greedy', 'vanilla'])
         reconstructions_per_solver = self.config.get('solvers', {}).get('reconstructions_per_solver', 1)
-
+        
         for instance in range(num_gt_instances):
             for sim in range(cas9_simulations_per_gt):
                 for tier in range(1, 5):
                     for solver in active_solvers:
                         for recon_id in range(reconstructions_per_solver):
-                            result_id = f'instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}'
-
-                            # Check in partitioned parquet structure first (using underscore format with zero-padding)
-                            partitioned_dir = self.shared_dir / "partitioned_results" / f"cas9_tier_{str(tier).zfill(3)}" / f"solver_{solver}"
-                            result_found = False
-
-                            if partitioned_dir.exists():
-                                try:
-                                    parquet_files = list(partitioned_dir.glob("*.parquet"))
-                                    if parquet_files:
-                                        # Read parquet and check if this specific result exists
-                                        try:
-                                            combined_df = pl.concat([pl.read_parquet(f) for f in parquet_files])
-                                            # Check if our specific reconstruction exists in the data
-                                            matching_rows = combined_df.filter(
-                                                (pl.col("gt_instance_id") == instance) &
-                                                (pl.col("cas9_simulation_id") == sim) &
-                                                (pl.col("reconstruction_num") == recon_id) &
-                                                (pl.col("cas9_tier") == tier) &
-                                                (pl.col("solver") == solver)
-                                            )
-                                            result_found = len(matching_rows) > 0
-                                        except Exception as e:
-                                            # If there's an error reading parquet, fallback to old method
-                                            logger.debug(f"Error reading partitioned results for {result_id}: {e}")
-                                            result_found = False
-                                except (FileNotFoundError, PermissionError, OSError) as e:
-                                    # If directory scanning fails, fallback to old method
-                                    logger.debug(f"Error scanning partitioned directory {partitioned_dir}: {e}")
-                                    result_found = False
-
-                            # Fallback to old individual file checking if not found in partitioned results
-                            if not result_found:
-                                result_file_paths = [
-                                    # New naming with full indexing (instance, sim, recon)
-                                    self.shared_dir / "results" / f"instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}_metrics.json",
-                                    self.shared_dir.parent / "results" / f"instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}_metrics.json",
-                                    # Previous naming without recon ID
-                                    self.shared_dir / "results" / f"instance{instance}_sim{sim}_tier{tier}_{solver}_metrics.json",
-                                    self.shared_dir.parent / "results" / f"instance{instance}_sim{sim}_tier{tier}_{solver}_metrics.json",
-                                    # Legacy naming without instance/simulation
-                                    self.shared_dir / "results" / f"tier{tier}_{solver}_metrics.json",
-                                    self.shared_dir.parent / "results" / f"tier{tier}_{solver}_metrics.json",
-                                    # Parquet versions
-                                    self.shared_dir / "results" / f"instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}_metrics.parquet",
-                                    self.shared_dir.parent / "results" / f"instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}_metrics.parquet",
-                                    self.shared_dir / "results" / f"instance{instance}_sim{sim}_tier{tier}_{solver}_metrics.parquet",
-                                    self.shared_dir.parent / "results" / f"instance{instance}_sim{sim}_tier{tier}_{solver}_metrics.parquet",
-                                    self.shared_dir / "results" / f"tier{tier}_{solver}_metrics.parquet",
-                                    self.shared_dir.parent / "results" / f"tier{tier}_{solver}_metrics.parquet"
-                                ]
-                                result_found = any(path.exists() for path in result_file_paths)
-
-                            file_status['results'][result_id] = result_found
+                            # Try multiple naming patterns
+                            result_file_paths = [
+                                # New naming with full indexing (instance, sim, recon)
+                                self.shared_dir / "results" / f"instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}_metrics.json",
+                                self.shared_dir.parent / "results" / f"instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}_metrics.json",
+                                # Previous naming without recon ID
+                                self.shared_dir / "results" / f"instance{instance}_sim{sim}_tier{tier}_{solver}_metrics.json",
+                                self.shared_dir.parent / "results" / f"instance{instance}_sim{sim}_tier{tier}_{solver}_metrics.json",
+                                # Legacy naming without instance/simulation
+                                self.shared_dir / "results" / f"tier{tier}_{solver}_metrics.json",
+                                self.shared_dir.parent / "results" / f"tier{tier}_{solver}_metrics.json",
+                                # Parquet versions
+                                self.shared_dir / "results" / f"instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}_metrics.parquet",
+                                self.shared_dir.parent / "results" / f"instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}_metrics.parquet",
+                                self.shared_dir / "results" / f"instance{instance}_sim{sim}_tier{tier}_{solver}_metrics.parquet",
+                                self.shared_dir.parent / "results" / f"instance{instance}_sim{sim}_tier{tier}_{solver}_metrics.parquet",
+                                self.shared_dir / "results" / f"tier{tier}_{solver}_metrics.parquet",
+                                self.shared_dir.parent / "results" / f"tier{tier}_{solver}_metrics.parquet"
+                            ]
+                            file_status['results'][f'instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}'] = any(path.exists() for path in result_file_paths)
         
         return file_status
     
@@ -332,7 +298,9 @@ class JobMonitor:
                 elif level == 'level3':
                     # Reconstruction - check if result files exist
                     if file_outputs.get('results', {}):
-                        completed_components = [result_id for result_id, exists in file_outputs['results'].items() if exists]
+                        completed_count = sum(1 for exists in file_outputs['results'].values() if exists)
+                        if completed_count == len(self.expected_structure[level]):
+                            completed_components = self.expected_structure[level][:]
 
             summary['levels'][level] = {
                 'status_data': level_status,
@@ -351,48 +319,31 @@ class JobMonitor:
         file_outputs = summary['file_outputs']
         num_gt_instances = self.config.get('execution', {}).get('num_gt_instances', 1)
         cas9_simulations_per_gt = self.config.get('execution', {}).get('cas9_simulations_per_gt', 1)
-
+        
         # Count completed items based on files that exist
         completed_count = 0
         total_expected = 0
-
+        
         # GT trees (1 per instance)
         total_expected += num_gt_instances
         completed_count += sum(1 for exists in file_outputs['gt_trees'].values() if exists)
-
+            
         # CAS9 instances (4 tiers × num_instances × cas9_simulations_per_gt)
         total_expected += 4 * num_gt_instances * cas9_simulations_per_gt
         completed_count += sum(1 for exists in file_outputs['cas9_instances'].values() if exists)
-
+        
         # Results (dynamic based on active solvers, tiers, instances, and simulations)
         active_solvers = self.config.get('solvers', {}).get('enabled', ['nj', 'maxcut', 'greedy', 'vanilla'])
         expected_results = 4 * len(active_solvers) * num_gt_instances * cas9_simulations_per_gt
         total_expected += expected_results
         completed_count += sum(1 for exists in file_outputs['results'].values() if exists)
-
-        # Count failures detected from logs (temporary workaround to get failure count)
-        detected_failures = []
-        logs_dir = self.shared_dir / "logs"
-        if logs_dir.exists():
-            failure_count = 0
-            for err_file in logs_dir.glob("*.err"):
-                try:
-                    with open(err_file, 'r') as f:
-                        content = f.read()
-                    if any(pattern in content for pattern in ['TERM_MEMLIMIT', 'User defined signal 2', 'job killed after reaching LSF memory usage limit']):
-                        failure_count += 1
-                except:
-                    continue
-            detected_failures.append(failure_count)
-
-        total_failed = sum(detected_failures) if detected_failures else 0
-
+        
         summary['overall_progress'] = {
             'total_expected': total_expected,
             'total_completed': completed_count,
-            'total_failed': total_failed,
+            'total_failed': 0,  # We don't track failures at file level
             'completion_percentage': (completed_count / total_expected * 100) if total_expected > 0 else 0,
-            'failure_percentage': (total_failed / total_expected * 100) if total_expected > 0 else 0.0
+            'failure_percentage': 0.0
         }
         
         return summary
@@ -418,52 +369,17 @@ class JobMonitor:
             'level2': '🧬 Level 2: Cas9 Recording',
             'level3': '🔧 Level 3: Reconstruction'
         }
-
+        
         for level, level_data in summary['levels'].items():
             print(f"\n{level_names.get(level, level.upper())}")
             completed = len(level_data['completed_components'])
             expected = len(level_data['expected_components'])
             failed = len(level_data['failed_components'])
-
+            
             print(f"   ✅ Completed: {completed}/{expected}")
             if failed > 0:
                 print(f"   ❌ Failed: {failed}/{expected}")
                 print(f"      Failed components: {', '.join(level_data['failed_components'])}")
-
-        # Show detected failures from logs
-        failures = self.detect_failures()
-        if failures:
-            print(f"\n🚨 FAILURE ANALYSIS")
-
-            # Group failures by type
-            failure_groups = {}
-            for failure in failures:
-                failure_type = failure.get('failure_type', 'unknown')
-                if failure_type not in failure_groups:
-                    failure_groups[failure_type] = []
-                failure_groups[failure_type].append(failure)
-
-            for failure_type, group_failures in failure_groups.items():
-                print(f"   {failure_type.upper()}: {len(group_failures)} failures")
-
-                # Show breakdown by tier/solver for reconstruction failures
-                if failure_type in ['memory_limit', 'signal_termination']:
-                    tier_solver_count = {}
-                    for failure in group_failures:
-                        if 'job_info' in failure and failure['job_info']:
-                            info = failure['job_info']
-                            if 'tier' in info and 'solver' in info:
-                                key = f"tier{info['tier']}_{info['solver']}"
-                                tier_solver_count[key] = tier_solver_count.get(key, 0) + 1
-
-                    if tier_solver_count:
-                        sorted_items = sorted(tier_solver_count.items(), key=lambda x: x[1], reverse=True)
-                        top_failures = sorted_items[:5]  # Show top 5
-                        for combo, count in top_failures:
-                            print(f"     • {combo}: {count}")
-                        if len(sorted_items) > 5:
-                            remaining = sum(count for _, count in sorted_items[5:])
-                            print(f"     • others: {remaining}")
         
         # File outputs
         files = summary['file_outputs']
@@ -569,8 +485,7 @@ class JobMonitor:
         """Detect and report job failures."""
         failures = []
         summary = self.generate_status_summary()
-
-        # Check status file failures
+        
         for level, level_data in summary['levels'].items():
             for failed_component in level_data['failed_components']:
                 component_data = level_data['status_data'][failed_component]
@@ -578,117 +493,10 @@ class JobMonitor:
                     'level': level,
                     'component': failed_component,
                     'error': component_data.get('details'),
-                    'timestamp': component_data.get('timestamp'),
-                    'failure_type': 'status_file'
+                    'timestamp': component_data.get('timestamp')
                 })
-
-        # Check log files for memory limit failures and other LSF failures
-        log_failures = self.detect_log_failures()
-        failures.extend(log_failures)
-
+        
         return failures
-
-    def detect_log_failures(self) -> List[Dict[str, Any]]:
-        """Detect failures from LSF log files."""
-        failures = []
-
-        # Check logs directory for error files
-        logs_dir = self.shared_dir / "logs"
-        if not logs_dir.exists():
-            return failures
-
-        for err_file in logs_dir.glob("*.err"):
-            try:
-                with open(err_file, 'r') as f:
-                    content = f.read()
-
-                # Check for various LSF failure patterns
-                failure_patterns = {
-                    'memory_limit': ['TERM_MEMLIMIT', 'job killed after reaching LSF memory usage limit'],
-                    'time_limit': ['TERM_RUNLIMIT', 'job killed after reaching LSF time usage limit'],
-                    'signal_termination': ['User defined signal 2', 'Terminated'],
-                    'system_error': ['ERROR', 'FAILED', 'Exception', 'Traceback']
-                }
-
-                job_name = err_file.stem  # Remove .err extension
-
-                # Extract job details from filename (e.g., reconstruct_instance0_sim0_recon0_tier1_maxcut_438825)
-                job_info = self.parse_job_name(job_name)
-
-                for failure_type, patterns in failure_patterns.items():
-                    if any(pattern in content for pattern in patterns):
-                        failure_detail = self.extract_failure_detail(content, failure_type)
-
-                        failures.append({
-                            'level': job_info.get('level', 'unknown'),
-                            'component': job_name,
-                            'error': failure_detail,
-                            'timestamp': err_file.stat().st_mtime,
-                            'failure_type': failure_type,
-                            'job_info': job_info
-                        })
-                        break  # Only report first failure type found
-
-            except Exception as e:
-                logger.debug(f"Error reading log file {err_file}: {e}")
-                continue
-
-        return failures
-
-    def parse_job_name(self, job_name: str) -> Dict[str, Any]:
-        """Parse job name to extract job information."""
-        info = {'level': 'unknown'}
-
-        if job_name.startswith('reconstruct_'):
-            info['level'] = 'level3'
-            # Try to extract: reconstruct_instance0_sim0_recon0_tier1_maxcut_438825
-            parts = job_name.split('_')
-            if len(parts) >= 6:
-                try:
-                    info['instance'] = int(parts[1].replace('instance', ''))
-                    info['simulation'] = int(parts[2].replace('sim', ''))
-                    info['reconstruction'] = int(parts[3].replace('recon', ''))
-                    info['tier'] = int(parts[4].replace('tier', ''))
-                    info['solver'] = parts[5]
-                except (ValueError, IndexError):
-                    pass
-        elif job_name.startswith('cas9_'):
-            info['level'] = 'level2'
-            # Try to extract: cas9_instance0_sim0_tier1_437687
-            parts = job_name.split('_')
-            if len(parts) >= 4:
-                try:
-                    info['instance'] = int(parts[1].replace('instance', ''))
-                    info['simulation'] = int(parts[2].replace('sim', ''))
-                    info['tier'] = int(parts[3].replace('tier', ''))
-                except (ValueError, IndexError):
-                    pass
-        elif 'gt' in job_name.lower():
-            info['level'] = 'level1'
-
-        return info
-
-    def extract_failure_detail(self, content: str, failure_type: str) -> str:
-        """Extract detailed failure information from log content."""
-        if failure_type == 'memory_limit':
-            if 'TERM_MEMLIMIT' in content:
-                return "Job killed after reaching LSF memory usage limit"
-        elif failure_type == 'time_limit':
-            if 'TERM_RUNLIMIT' in content:
-                return "Job killed after reaching LSF time usage limit"
-        elif failure_type == 'signal_termination':
-            if 'User defined signal 2' in content:
-                return "Job terminated with signal 2 (likely system kill)"
-        elif failure_type == 'system_error':
-            # Try to extract the actual error message
-            lines = content.split('\n')
-            for i, line in enumerate(lines):
-                if any(keyword in line for keyword in ['ERROR', 'Exception', 'Traceback']):
-                    # Return this line and potentially the next few lines for context
-                    error_lines = lines[i:i+3]
-                    return ' | '.join(error_lines)
-
-        return f"Detected {failure_type} failure"
 
 
 def main():
@@ -710,27 +518,8 @@ def main():
         failures = monitor.detect_failures()
         if failures:
             print("❌ DETECTED FAILURES:")
-
-            # Group failures by type
-            failure_groups = {}
             for failure in failures:
-                failure_type = failure.get('failure_type', 'unknown')
-                if failure_type not in failure_groups:
-                    failure_groups[failure_type] = []
-                failure_groups[failure_type].append(failure)
-
-            for failure_type, group_failures in failure_groups.items():
-                print(f"\n   {failure_type.upper()} ({len(group_failures)} failures):")
-                for failure in group_failures[:10]:  # Show first 10 per type
-                    component = failure['component']
-                    error = failure['error']
-                    if 'job_info' in failure and failure['job_info']:
-                        info = failure['job_info']
-                        if 'tier' in info and 'solver' in info:
-                            component = f"tier{info['tier']}_{info['solver']}"
-                    print(f"     • {component}: {error}")
-                if len(group_failures) > 10:
-                    print(f"     ... and {len(group_failures) - 10} more")
+                print(f"   {failure['level']}.{failure['component']}: {failure['error']}")
         else:
             print("✅ No failures detected")
     elif args.continuous:

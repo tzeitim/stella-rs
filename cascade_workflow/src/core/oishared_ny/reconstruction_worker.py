@@ -17,12 +17,6 @@ from pathlib import Path
 from typing import Dict, Any
 import numpy as np
 import polars as pl
-
-# Fix scipy.errstate compatibility issue for spectral solver
-import scipy
-if not hasattr(scipy, 'errstate'):
-    scipy.errstate = np.errstate
-
 import cassiopeia as cass
 from copy import deepcopy
 import stellars
@@ -30,7 +24,7 @@ from convexml import convexml
 from solver_config import get_solver_class, SOLVERS
 import yaml
 import sys
-sys.path.append(str(Path(__file__).parent.parent / "cascade_workflow" / "src" / "utils"))
+sys.path.append(str(Path(__file__).parent.parent.parent / "utils"))
 from partitioned_results_writer import (
     PartitionedResultsWriter, 
     ConcurrentPartitionedWriter,
@@ -254,17 +248,17 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         try:
             # cPHS calculation using stellars - use all available cores
             max_threads = os.environ.get('LSB_MAX_NUM_PROCESSORS', '20')
-            phs_result = stellars.phs(
-                tree_newick=optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True),
-                character_matrix=optimized_tree.character_matrix.to_numpy().tolist(),
+            phs_result = stellars.phs_from_cassiopeia(
+                optimized_tree,
                 mutation_rate=lam,
                 collision_probability=q,
                 missing_state=-1,
                 unedited_state=0,
-                use_internal_states=True,  # Use reconstructed internal states
+                use_provided_internal_states=True,  # Use reconstructed internal states
+                reconstruct_ancestral=False,  # Already done
                 max_threads=int(max_threads)
             )
-            metrics['cPHS'] = phs_result.phs_score
+            metrics['cPHS'] = phs_result['phs_score']
         except Exception as e:
             logger.warning(f"cPHS calculation failed: {e}")
             metrics['cPHS'] = np.nan
@@ -295,43 +289,15 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
     except Exception as e:
         logger.error(f"Reconstruction failed: {e}")
         computation_time = time.time() - start_time
-
-        # Return result with same schema as successful reconstruction to avoid DataFrame mismatch
-        tier_config = CAS9_TIERS[tier_num]
         return {
             'reconstruction_id': f"instance{gt_instance_id}_sim{cas9_simulation_id}_recon{reconstruction_id}_tier{tier_num}_{solver_name}",
             'gt_instance_id': gt_instance_id,
             'cas9_simulation_id': cas9_simulation_id,
             'reconstruction_num': reconstruction_id,
             'cas9_tier': tier_num,
-            'cas9_tier_name': tier_config.name,
-            'recording_sites': tier_config.recording_sites,
-            'states_per_site': tier_config.states_per_site,
             'solver': solver_name,
-            'computation_time_seconds': computation_time,
-            'lam_simulation': None,
-            'q_simulation': None,
-            'proportion_mutated_simulation': None,
-            'q_simulation_source': None,
-            'lam_gt': None,
-            'q_gt': None,
-            'proportion_mutated_gt': None,
-            'phs_lam_source': None,
-            'phs_q_source': None,
-            'triplets_distance': None,
-            'RF_distance': None,
-            'cPHS': None,
-            'parsimony_score': None,
-            'total_mutations': None,
-            'parsimony_computation_time_ms': None,
-            'parsimony_method': None,
-            'log_likelihood': None,
-            'likelihood': None,
-            'likelihood_computation_time_ms': None,
-            'likelihood_method': None,
-            'n_characters': None,
-            'n_leaves': None,
             'error': str(e),
+            'computation_time_seconds': computation_time,
             'status': 'failed'
         }
 

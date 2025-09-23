@@ -128,13 +128,8 @@ class CascadeConfig:
     
     @property 
     def reconstructions_per_solver(self) -> int:
-        """Number of reconstructions per solver per Cas9 simulation."""
+        """Number of reconstructions per solver per tier."""
         return self.config['solvers'].get('reconstructions_per_solver', 1)
-    
-    @property
-    def cas9_simulations_per_gt(self) -> int:
-        """Number of Cas9 simulations to generate per ground truth."""
-        return self.config['execution'].get('cas9_simulations_per_gt', 1)
     
     @property
     def cas9_tiers(self) -> Dict[int, Cas9TierConfig]:
@@ -183,17 +178,16 @@ class CascadeConfig:
         return self.config.get('debug', {}).get('test_params', {})
     
     def total_expected_jobs(self) -> int:
-        """Calculate total number of expected jobs with multiple Cas9 simulations per GT."""
+        """Calculate total number of expected jobs."""
         num_gt = self.num_gt_instances
-        num_cas9_per_gt = self.cas9_simulations_per_gt
         num_tiers = len(self.cas9_tiers)
         num_solvers = len(self.enabled_solvers)
         reconstructions_per = self.reconstructions_per_solver
         
         # GT jobs + Cas9 jobs + Reconstruction jobs
         gt_jobs = num_gt
-        cas9_jobs = num_gt * num_cas9_per_gt * num_tiers
-        reconstruction_jobs = num_gt * num_cas9_per_gt * num_tiers * num_solvers * reconstructions_per
+        cas9_jobs = num_gt * num_tiers  
+        reconstruction_jobs = num_gt * num_tiers * num_solvers * reconstructions_per
         
         return gt_jobs + cas9_jobs + reconstruction_jobs
     

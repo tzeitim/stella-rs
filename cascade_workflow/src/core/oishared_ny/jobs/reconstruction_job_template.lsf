@@ -1,0 +1,55 @@
+#!/bin/bash
+#BSUB -J reconstruct_tier{TIER}_{SOLVER}
+#BSUB -oo /home/projects/nyosef/pedro/src/stella-rs/cascade_workflow/src/core/oishared_ny/logs/reconstruct_tier{TIER}_{SOLVER}_%J.out
+#BSUB -eo /home/projects/nyosef/pedro/src/stella-rs/cascade_workflow/src/core/oishared_ny/logs/reconstruct_tier{TIER}_{SOLVER}_%J.err  
+#BSUB -W 0:45
+#BSUB -n 20 -R "span[hosts=1]"
+#BSUB -R rusage[mem=1.5GB]
+
+# Reconstruction Job - Level 3 of Cascading LSF System
+# Performs reconstruction with {SOLVER} solver for Tier {TIER}
+
+echo "=== Reconstruction Job Starting - Tier {TIER}, Solver {SOLVER} ==="
+echo "Job ID: $LSB_JOBID"
+echo "Host: $HOSTNAME"
+echo "Date: $(date)"
+echo "Cas9 Instance Path: $1"
+echo "Solver: $2"
+echo "Tier: $3"
+
+# Set up environment
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+
+# Activate conda environment
+eval "$(/home/projects/nyosef/pedro/miniforge3/bin/conda shell.bash hook)"
+source ~/miniforge3/etc/profile.d/mamba.sh
+conda activate cass
+
+# Validate inputs
+if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
+    echo "ERROR: Missing required arguments"
+    echo "Usage: reconstruction_job.lsf <cas9_instance_path> <solver> <tier>"
+    exit 1
+fi
+
+# Change to shared directory
+cd /home/projects/nyosef/pedro/src/stella-rs/cascade_workflow/src/core/oishared_ny
+
+# Run reconstruction worker
+echo "Executing reconstruction worker with $2 solver for Tier $3..."
+python reconstruction_worker.py \
+    --cas9_instance_path "$1" \
+    --solver "$2" \
+    --tier "$3" \
+    --output_dir results \
+    --shared_dir /home/projects/nyosef/pedro/src/stella-rs/cascade_workflow/src/core/oishared_ny
+
+exit_code=$?
+
+if [ $exit_code -eq 0 ]; then
+    echo "=== Reconstruction Job Completed Successfully - Tier {TIER}, Solver {SOLVER} ==="
+else
+    echo "=== Reconstruction Job Failed with exit code: $exit_code - Tier {TIER}, Solver {SOLVER} ==="
+fi
+
+exit $exit_code
