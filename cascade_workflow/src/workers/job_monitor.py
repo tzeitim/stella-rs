@@ -203,9 +203,12 @@ class JobMonitor:
         cas9_simulations_per_gt = self.config.get('execution', {}).get('cas9_simulations_per_gt', 1)
         
         # Check Cas9 instances - multiple per GT instance and simulation
+        # Get active tiers from config instead of hardcoded 1-4
+        active_tiers = list(self.config.get('cas9_tiers', {1: {}, 2: {}, 3: {}, 4: {}}).keys())
+
         for instance in range(num_gt_instances):
             for sim in range(cas9_simulations_per_gt):
-                for tier in range(1, 5):
+                for tier in active_tiers:
                     # Try multiple naming patterns
                     cas9_file_paths = [
                         # New naming with instance and simulation
@@ -223,13 +226,13 @@ class JobMonitor:
 
         for instance in range(num_gt_instances):
             for sim in range(cas9_simulations_per_gt):
-                for tier in range(1, 5):
+                for tier in active_tiers:
                     for solver in active_solvers:
                         for recon_id in range(reconstructions_per_solver):
                             result_id = f'instance{instance}_sim{sim}_recon{recon_id}_tier{tier}_{solver}'
 
-                            # Check in partitioned parquet structure first (using underscore format with zero-padding)
-                            partitioned_dir = self.shared_dir / "partitioned_results" / f"cas9_tier_{str(tier).zfill(3)}" / f"solver_{solver}"
+                            # Check in partitioned parquet structure first (using equals format)
+                            partitioned_dir = self.shared_dir / "partitioned_results" / f"cas9_tier={tier}" / f"solver={solver}"
                             result_found = False
 
                             if partitioned_dir.exists():
@@ -360,13 +363,14 @@ class JobMonitor:
         total_expected += num_gt_instances
         completed_count += sum(1 for exists in file_outputs['gt_trees'].values() if exists)
 
-        # CAS9 instances (4 tiers × num_instances × cas9_simulations_per_gt)
-        total_expected += 4 * num_gt_instances * cas9_simulations_per_gt
+        # CAS9 instances (active_tiers × num_instances × cas9_simulations_per_gt)
+        active_tiers = list(self.config.get('cas9_tiers', {1: {}, 2: {}, 3: {}, 4: {}}).keys())
+        total_expected += len(active_tiers) * num_gt_instances * cas9_simulations_per_gt
         completed_count += sum(1 for exists in file_outputs['cas9_instances'].values() if exists)
 
         # Results (dynamic based on active solvers, tiers, instances, and simulations)
         active_solvers = self.config.get('solvers', {}).get('enabled', ['nj', 'maxcut', 'greedy', 'vanilla'])
-        expected_results = 4 * len(active_solvers) * num_gt_instances * cas9_simulations_per_gt
+        expected_results = len(active_tiers) * len(active_solvers) * num_gt_instances * cas9_simulations_per_gt
         total_expected += expected_results
         completed_count += sum(1 for exists in file_outputs['results'].values() if exists)
 

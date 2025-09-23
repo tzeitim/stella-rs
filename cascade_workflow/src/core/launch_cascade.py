@@ -64,7 +64,11 @@ def copy_worker_scripts(shared_dir: Path, source_dir: Path) -> None:
         "reconstruction_worker.py": workers_dir,
         "reconstruction_metrics_table_multi_tier.py": workers_dir,
         "job_monitor.py": workers_dir,
-        "solver_config.py": utils_dir
+        "solver_config.py": utils_dir,
+        "partitioned_results_writer.py": utils_dir,
+        "config_loader.py": utils_dir,
+        "job_throttling.py": utils_dir,
+        "update_throttling.py": utils_dir
     }
     
     for script, location in script_locations.items():

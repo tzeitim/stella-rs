@@ -1,0 +1,119 @@
+# Massive Simulation Configuration
+# For large-scale simulations with careful job throttling to avoid cluster disruption
+
+# Simulation scale
+execution:
+  num_gt_instances: 100  # Large number of instances
+  cas9_simulations_per_gt: 20  # Many simulations per instance
+  parallel_execution: true
+  run_name: "massive_simulation"
+  random_seed: 42
+
+# Ground truth generation parameters
+ground_truth:
+  tree_config:
+    N: 5000   # Large simulated population
+    n: 1000   # Large observed population
+    fitness:
+      initial_birth_scale: 2
+      fitness_base: 1.0
+      fitness_std: 0.0
+
+# CAS9 tiers configuration - reduced for massive scale
+cas9_tiers:
+  2:
+    base_mutation_rate: 1.2
+    cassette_size: 10
+    description: "High fidelity recording"
+    k: 10
+    m: 20
+    mutation_rate_pattern: uniform
+    name: Tier 2 - High Fidelity
+    state_priors_exponent: 1e-4
+  3:
+    base_mutation_rate: 1.0
+    cassette_size: 3
+    description: "Medium fidelity recording"
+    k: 5
+    m: 20
+    mutation_rate_pattern: uniform
+    name: Tier 3 - Medium Fidelity
+    state_priors_exponent: 1e-4
+
+# Solver configuration - limited set for massive simulations
+solvers:
+  enabled:
+    - "nj"      # Fast and reliable
+    - "greedy"  # Good performance
+    - "maxcut"  # Balanced
+
+  disabled:
+    - "spectral"  # Skip for speed
+    - "smj"       # Skip for speed
+    - "dmj"
+    - "vanilla"
+    - "ilp"
+
+  reconstructions_per_solver: 1  # Single reconstruction per solver
+
+  solver_params:
+    nj:
+      add_root: true
+    maxcut:
+      time_limit: 600  # 10 minutes max
+    greedy:
+      max_iterations: 2000  # Reduced iterations for speed
+
+# LSF job parameters with AGGRESSIVE THROTTLING
+lsf:
+  queues:
+    master_gt: "medium"
+    cas9_recording: "medium"
+    reconstruction: "long"
+
+  # CRITICAL: Job throttling to avoid overwhelming cluster
+  throttling:
+    max_concurrent_cas9_jobs: 10        # Very conservative CAS9 job limit
+    max_concurrent_reconstruction_jobs: 50   # Conservative reconstruction limit
+    job_submission_delay: 5.0           # Longer delay between submissions
+    batch_size: 5                       # Small batches
+    check_interval: 60                  # Check every minute
+
+  resources:
+    master_gt:
+      cores: 20
+      memory_gb: 2.0
+      time_limit: "6:00"  # 6 hours for large trees
+    cas9_recording:
+      cores: 25
+      memory_gb: 2.0
+      time_limit: "4:00"  # 4 hours
+    reconstruction:
+      cores: 15
+      memory_gb: 2.0
+      time_limit: "8:00"  # 8 hours for large reconstructions
+
+# Output configuration
+output:
+  gt_prefix: gt_massive
+  cas9_prefix: cas9_massive
+  result_prefix: result_massive
+  save_intermediate_trees: false  # Disable to save space
+  save_detailed_metrics: true
+  generate_plots: false  # Disable plotting for massive runs
+  compare_across_tiers: true
+
+# Monitoring with longer intervals for massive simulations
+monitoring:
+  continuous_monitoring: true
+  check_interval: 300  # Check every 5 minutes
+  max_job_wait_time: 28800  # 8 hours timeout
+
+  notifications:
+    enabled: false
+
+# Debug settings for production massive runs
+debug:
+  verbose_logging: false  # Reduce log verbosity
+  save_debug_info: false  # Disable debug info to save space
+  test_mode: false

@@ -41,7 +41,7 @@ python reconstruction_worker.py \
     --cas9_instance_path "$1" \
     --solver "$2" \
     --tier "$3" \
-    --output_dir results \
+    --output_dir {SHARED_DIR}/results \
     --shared_dir {SHARED_DIR}
 
 exit_code=$?

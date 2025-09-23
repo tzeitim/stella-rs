@@ -4,16 +4,16 @@
 # Execution control
 execution:
   random_seed: 42  # Master seed for reproducibility
-  num_gt_instances: 100  # Test with 10 instances (0-9)
-  cas9_simulations_per_gt: 10  # Generate 5 Cas9 simulations per GT for statistics
+  num_gt_instances: 50  # Test with 10 instances (0-9)
+  cas9_simulations_per_gt: 50  # Generate 5 Cas9 simulations per GT for statistics
   parallel_execution: true  # Whether to run jobs in parallel
   run_name: "medium_scale_test"  # Name for this experimental run
   
 # Ground truth generation parameters
 ground_truth:
   tree_config:
-    N: 1500 # Full simulated population: Total number of cells in the original simulated tree 
-    n: 1000  #  Observed/sampled population: Number of cells actually "sequenced" or analyzed 
+    N: 15000 # Full simulated population: Total number of cells in the original simulated tree 
+    n: 2500  #  Observed/sampled population: Number of cells actually "sequenced" or analyzed 
     fitness:
       initial_birth_scale: 2
       #fitness_base: 1.1  # or 1.0          # NO fitness advantage (neutral)
@@ -43,8 +43,8 @@ cas9_tiers:
     cassette_size: 10
     m: 20
     mutation_rate_pattern: "uniform"
-    base_mutation_rate: 1.5
-    state_priors_exponent: 1e-5
+    base_mutation_rate: 1.2
+    state_priors_exponent: 1e-4
     
   3:
     name: "Tier 3 - Medium Fidelity"
@@ -70,15 +70,15 @@ cas9_tiers:
 solvers:
   enabled:
     - "nj"
-    - "vanilla"
     - "greedy"
+    - "spectral"
     - "maxcut"  
+    - "smj" 
   
   disabled:
     - "dmj"     # Disabled due to DistanceSolver issues
+    - "vanilla"
     - "ilp"
-    - "spectral"
-    - "smj" 
   
   reconstructions_per_solver: 1  # Reconstructions per solver per Cas9 simulation
   
@@ -95,30 +95,38 @@ solvers:
 lsf:
   queues:
     master_gt: "medium"
-    cas9_recording: "medium" 
+    cas9_recording: "medium"
     reconstruction: "long"  # Long queue for big reconstructions
-  
+
+  # Job throttling - control concurrent job submission
+  throttling:
+    max_concurrent_cas9_jobs: 20      # Max CAS9 recording jobs running at once
+    max_concurrent_reconstruction_jobs: 1000  # Max reconstruction jobs running at once
+    job_submission_delay: 2.0         # Seconds to wait between job submissions
+    batch_size: 50                    # Submit jobs in batches of this size
+    check_interval: 60                # Seconds between job count checks
+
   resources:
     master_gt:
-      cores: 30  # More cores for bigger trees
-      memory_gb: 6.0  # More memory
+      cores: 25  # More cores for bigger trees
+      memory_gb: 1.5  # More memory
       time_limit: "4:00"  # 4 hours
       
     cas9_recording:
       cores: 35
-      memory_gb: 6.0
+      memory_gb: 1.5
       time_limit: "2:00"  # 2 hours
       
     reconstruction:
-      cores: 8
-      memory_gb: 8.0  # 8GB for large reconstructions
+      cores: 65
+      memory_gb: 1.5  
       time_limit: "6:00"  # 6 hours maximum per reconstruction
       
   # log_dir is now derived from shared_dir/logs - no hardcoded paths
 
 # Output and analysis  
 output:
-  shared_dir: "shared_ny"
+  shared_dir: "oishared_ny"
   save_intermediate_trees: true
   save_detailed_metrics: true
   generate_plots: false

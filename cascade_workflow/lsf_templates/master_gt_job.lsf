@@ -30,7 +30,7 @@ cd {SHARED_DIR}
 # Run master GT worker
 echo "Executing master GT worker..."
 python master_gt_worker.py \
-    --output_dir gt_trees \
+    --output_dir {SHARED_DIR}/gt_trees \
     --shared_dir {SHARED_DIR}
 
 exit_code=$?

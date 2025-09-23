@@ -20,6 +20,11 @@ import cassiopeia as cass
 from cassiopeia.simulator import BirthDeathFitnessSimulator, UniformLeafSubsampler, Cas9LineageTracingDataSimulator
 import yaml
 
+# Add utils directory to path for job throttling
+utils_dir = Path(__file__).parent.parent / "utils"
+sys.path.append(str(utils_dir))
+from job_throttling import create_throttler_from_config
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -178,12 +183,15 @@ class MasterGTWorker:
         self.output_dir = Path(output_dir)
         self.shared_dir = Path(shared_dir)
         self.gt_tree_path = None
-        
+
         # Load configuration
         config_path = self.shared_dir / "cascade_config.yaml"
         self.config = load_config(str(config_path))
         logger.info(f"Loaded config from {config_path}")
-        
+
+        # Initialize job throttler with dynamic config support
+        self.throttler = create_throttler_from_config(self.config, self.shared_dir)
+
         # Ensure directories exist
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (self.shared_dir / "status").mkdir(parents=True, exist_ok=True)
@@ -289,40 +297,47 @@ class MasterGTWorker:
         # })
         
     def submit_cas9_job(self, tier: int, instance_id: int, cas9_simulation_id: int, gt_tree_path: str) -> str:
-        """Submit LSF job for a specific Cas9 tier, instance, and simulation."""
-        job_script = self.shared_dir / "jobs" / f"cas9_tier{tier}_job.lsf"
-        
-        # Use the actual shared directory that was passed to this worker
-        # Don't use config's shared_dir as it may not match the actual directory structure
-        output_base = self.shared_dir
-        
-        # Build bsub command with instance and simulation-specific naming
-        cmd = [
-            'bsub',
-            '-J', f'cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_analysis',
-            '-oo', f"{self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.out",
-            '-eo', f"{self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.err",
-            '-W', '0:30',  # 30 minutes
-            '-n', '15', '-R', 'span[hosts=1]',
-            '-R', 'rusage[mem=1.5GB]',
-            'python', str(Path(__file__).parent / 'cas9_recording_worker.py'),
-            '--gt_tree_path', gt_tree_path,
-            '--tier', str(tier),
-            '--instance', str(instance_id),
-            '--cas9_simulation_id', str(cas9_simulation_id),
-            '--output_dir', str(output_base / "cas9_instances"),
-            '--shared_dir', str(output_base)
-        ]
-        
-        # Submit job
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            raise RuntimeError(f"bsub failed: {result.stderr}")
-            
-        # Extract job ID from bsub output
-        job_id = result.stdout.strip().split('<')[1].split('>')[0]
-        return job_id
+        """Submit LSF job for a specific Cas9 tier, instance, and simulation with throttling."""
+
+        def _do_submit():
+            """Internal function to perform the actual submission"""
+            job_script = self.shared_dir / "jobs" / f"cas9_tier{tier}_job.lsf"
+
+            # Use the actual shared directory that was passed to this worker
+            # Don't use config's shared_dir as it may not match the actual directory structure
+            output_base = self.shared_dir
+
+            # Build bsub command with instance and simulation-specific naming
+            cmd = [
+                'bsub',
+                '-J', f'cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_analysis',
+                '-oo', f"{self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.out",
+                '-eo', f"{self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.err",
+                '-W', '0:30',  # 30 minutes
+                '-n', '15', '-R', 'span[hosts=1]',
+                '-R', 'rusage[mem=1.5GB]',
+                'python', str(Path(__file__).parent / 'cas9_recording_worker.py'),
+                '--gt_tree_path', gt_tree_path,
+                '--tier', str(tier),
+                '--instance', str(instance_id),
+                '--cas9_simulation_id', str(cas9_simulation_id),
+                '--output_dir', str(output_base / "cas9_instances"),
+                '--shared_dir', str(output_base)
+            ]
+
+            # Submit job
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                raise RuntimeError(f"bsub failed: {result.stderr}")
+
+            # Extract job ID from bsub output
+            job_id = result.stdout.strip().split('<')[1].split('>')[0]
+            logger.info(f"Submitted CAS9 job {job_id} for instance {instance_id}, sim {cas9_simulation_id}, tier {tier}")
+            return job_id
+
+        # Use throttling to submit the job
+        return self.throttler.submit_with_throttling(_do_submit, 'cas9')
     
     def update_status(self, level: str, component: str, status: str, details: Any = None) -> None:
         """Update job status in shared status file."""

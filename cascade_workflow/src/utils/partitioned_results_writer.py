@@ -33,25 +33,26 @@ class PartitionConfig:
 
 class PartitionedResultsWriter:
     """
-    Writes simulation results to partitioned parquet files for optimal storage and querying.
-    
-    Instead of thousands of individual files, creates a directory structure like:
+    Writes simulation results to Hive-partitioned parquet files for optimal storage and querying.
+
+    Uses industry-standard Hive partitioning format, creating a directory structure like:
     results/
-    ├── cas9_tier_001/
-    │   ├── solver_nj/
-    │   │   └── data.parquet
-    │   └── solver_maxcut/
-    │       └── data.parquet
-    ├── cas9_tier_002/
-    │   ├── solver_nj/
-    │   │   └── data.parquet
-    │   └── solver_maxcut/
-    │       └── data.parquet
-    
+    ├── cas9_tier=1/
+    │   ├── solver=nj/
+    │   │   └── 0.parquet
+    │   └── solver=maxcut/
+    │       └── 0.parquet
+    ├── cas9_tier=2/
+    │   ├── solver=nj/
+    │   │   └── 0.parquet
+    │   └── solver=maxcut/
+    │       └── 0.parquet
+
     This enables:
-    - Fast filtering: df.filter(pl.col("tier") == 2) loads only relevant partitions
+    - Fast filtering: Query engines can automatically leverage partitions for predicate pushdown
     - Efficient storage: Better compression across similar records
-    - Parallel processing: Different partitions can be processed independently
+    - Tool compatibility: Works with Spark, Presto, Trino, and other data platforms
+    - Self-documenting: Column=value format is immediately readable
     """
     
     def __init__(self, partition_config: PartitionConfig):
@@ -79,7 +80,7 @@ class PartitionedResultsWriter:
                 self._flush_buffer()
     
     def _flush_buffer(self) -> None:
-        """Flush buffered results to partitioned parquet files"""
+        """Flush buffered results to partitioned parquet files using Hive partitioning"""
         if not self.buffer:
             return
 
@@ -87,40 +88,14 @@ class PartitionedResultsWriter:
             # Convert to DataFrame
             df = pl.DataFrame(self.buffer)
 
-            # Use custom partitioning with underscore naming instead of Hive format
-            # Group by partition columns and write separately
             if self.config.partition_columns:
-                partition_groups = df.group_by(self.config.partition_columns)
-
-                for group_key, group_df in partition_groups:
-                    # Create directory path with underscore format
-                    partition_path = self.config.output_dir
-
-                    # Handle both single and multiple partition columns
-                    if isinstance(group_key, tuple):
-                        for i, col in enumerate(self.config.partition_columns):
-                            value = group_key[i]
-                            # Zero-pad numeric values to 3 digits
-                            if isinstance(value, (int, float)):
-                                value = str(int(value)).zfill(3)
-                            partition_path = partition_path / f"{col}_{value}"
-                    else:
-                        # Single partition column
-                        value = group_key
-                        # Zero-pad numeric values to 3 digits
-                        if isinstance(value, (int, float)):
-                            value = str(int(value)).zfill(3)
-                        partition_path = partition_path / f"{self.config.partition_columns[0]}_{value}"
-
-                    # Create directory if it doesn't exist
-                    partition_path.mkdir(parents=True, exist_ok=True)
-
-                    # Write group to separate file
-                    output_file = partition_path / f"data_{int(time.time())}_{len(group_df)}.parquet"
-                    group_df.write_parquet(
-                        str(output_file),
-                        compression=self.config.compression
-                    )
+                # Use Polars' built-in Hive partitioning (column=value format)
+                df.write_parquet(
+                    str(self.config.output_dir),
+                    compression=self.config.compression,
+                    partition_by=self.config.partition_columns,
+                    partition_chunk_size_bytes=128 * 1024 * 1024  # 128MB chunks
+                )
             else:
                 # No partitioning, write directly
                 output_file = self.config.output_dir / f"data_{int(time.time())}_{len(df)}.parquet"
@@ -129,9 +104,9 @@ class PartitionedResultsWriter:
                     compression=self.config.compression
                 )
 
-            logger.info(f"Flushed {len(self.buffer)} results to partitioned parquet")
+            logger.info(f"Flushed {len(self.buffer)} results to Hive-partitioned parquet")
             self.buffer.clear()
-            
+
         except Exception as e:
             logger.error(f"Failed to flush buffer: {e}")
             # Don't clear buffer on error to avoid data loss
@@ -151,8 +126,10 @@ class PartitionedResultsWriter:
 
 class ConcurrentPartitionedWriter:
     """
-    Thread-safe version that handles concurrent writes from multiple workers.
+    Thread-safe version that handles concurrent writes from multiple workers using Hive partitioning.
     Uses file locking to ensure data integrity when multiple processes write simultaneously.
+
+    Creates Hive-partitioned structure (column=value) that is compatible with standard data tools.
     """
     
     def __init__(self, partition_config: PartitionConfig):
@@ -228,9 +205,16 @@ class ConcurrentPartitionedWriter:
 
 
 def create_simulation_partition_config(output_dir: Path, buffer_size: int = 1000) -> PartitionConfig:
-    """Create standard partition configuration for simulation results"""
+    """
+    Create standard Hive partition configuration for simulation results.
+
+    Creates partitions by cas9_tier and solver, resulting in directories like:
+    - cas9_tier=1/solver=nj/
+    - cas9_tier=2/solver=maxcut/
+    etc.
+    """
     return PartitionConfig(
-        partition_columns=["cas9_tier", "solver"],  # Primary partitioning
+        partition_columns=["cas9_tier", "solver"],  # Hive partitioning columns
         output_dir=output_dir,
         buffer_size=buffer_size,
         compression="snappy"
@@ -239,15 +223,17 @@ def create_simulation_partition_config(output_dir: Path, buffer_size: int = 1000
 
 def read_partitioned_results(results_dir: Path, filters: Optional[Dict[str, Any]] = None) -> pl.DataFrame:
     """
-    Read partitioned simulation results with optional filtering.
-    
+    Read Hive-partitioned simulation results with optional filtering.
+
+    Automatically leverages Hive partitioning for efficient filtering.
+
     Args:
-        results_dir: Directory containing partitioned parquet files
+        results_dir: Directory containing Hive-partitioned parquet files (cas9_tier=X/solver=Y/)
         filters: Dict of column filters, e.g., {"cas9_tier": [1, 2], "solver": ["nj"]}
-    
+
     Returns:
         Polars DataFrame with filtered results
-        
+
     Example:
         # Read only tier 1 and 2 results with NJ solver
         df = read_partitioned_results(

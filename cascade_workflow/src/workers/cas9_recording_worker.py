@@ -21,6 +21,11 @@ from dataclasses import dataclass
 from copy import deepcopy
 import yaml
 
+# Add utils directory to path for job throttling
+utils_dir = Path(__file__).parent.parent / "utils"
+sys.path.append(str(utils_dir))
+from job_throttling import create_throttler_from_config
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -182,11 +187,14 @@ class Cas9RecordingWorker:
         config_path = self.shared_dir / "cascade_config.yaml"
         self.config = load_config(str(config_path))
         logger.info(f"Loaded config from {config_path}")
-        
+
+        # Initialize job throttler with dynamic config support
+        self.throttler = create_throttler_from_config(self.config, self.shared_dir)
+
         # Ensure directories exist
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (self.shared_dir / "logs").mkdir(parents=True, exist_ok=True)
-        
+
         # Validate tier
         if tier not in CAS9_TIERS:
             raise ValueError(f"Invalid tier: {tier}. Must be one of {list(CAS9_TIERS.keys())}")
@@ -280,19 +288,14 @@ class Cas9RecordingWorker:
         # })
     
     def submit_reconstruction_job(self, solver: str) -> str:
-        """Submit LSF job for a specific solver reconstruction."""
-        
-        # Get configured output directory or use default
-        config_shared_dir = self.config.get('output', {}).get('shared_dir', str(self.shared_dir))
-        output_base = Path(config_shared_dir)
-        
-        # Get reconstructions_per_solver from config
-        reconstructions_per_solver = self.config.get('solvers', {}).get('reconstructions_per_solver', 1)
-        
-        # Submit multiple reconstruction jobs if reconstructions_per_solver > 1
-        submitted_job_ids = []
-        
-        for recon_id in range(reconstructions_per_solver):
+        """Submit LSF job for a specific solver reconstruction with throttling."""
+
+        def _do_submit(recon_id: int):
+            """Internal function to perform the actual submission"""
+            # Get configured output directory or use default
+            config_shared_dir = self.config.get('output', {}).get('shared_dir', str(self.shared_dir))
+            output_base = Path(config_shared_dir)
+
             # Build bsub command with proper indexing
             cmd = [
                 'bsub',
@@ -312,17 +315,30 @@ class Cas9RecordingWorker:
                 '--cas9_simulation_id', str(self.cas9_simulation_id),
                 '--reconstruction_id', str(recon_id)
             ]
-            
+
             # Submit job
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             if result.returncode != 0:
                 raise RuntimeError(f"bsub failed for reconstruction {recon_id}: {result.stderr}")
-                
+
             # Extract job ID from bsub output
             job_id = result.stdout.strip().split('<')[1].split('>')[0]
-            submitted_job_ids.append(job_id)
-            
+            logger.info(f"Submitted reconstruction job {job_id} for solver {solver}, recon {recon_id}")
+            return job_id
+
+        # Get reconstructions_per_solver from config
+        reconstructions_per_solver = self.config.get('solvers', {}).get('reconstructions_per_solver', 1)
+
+        # Submit multiple reconstruction jobs if reconstructions_per_solver > 1
+        submitted_job_ids = []
+
+        for recon_id in range(reconstructions_per_solver):
+            # Use throttling to submit the job
+            job_id = self.throttler.submit_with_throttling(_do_submit, 'reconstruction', recon_id)
+            if job_id:
+                submitted_job_ids.append(job_id)
+
         return ','.join(submitted_job_ids)  # Return all job IDs
     
     def update_status(self, level: str, component: str, status: str, details: Any = None) -> None:

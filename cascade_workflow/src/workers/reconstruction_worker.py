@@ -30,12 +30,42 @@ from convexml import convexml
 from solver_config import get_solver_class, SOLVERS
 import yaml
 import sys
-sys.path.append(str(Path(__file__).parent.parent / "cascade_workflow" / "src" / "utils"))
-from partitioned_results_writer import (
-    PartitionedResultsWriter, 
-    ConcurrentPartitionedWriter,
-    create_simulation_partition_config
-)
+
+# Add utils directory to path - handle both original location and copied location
+current_dir = Path(__file__).parent
+utils_candidates = [
+    current_dir.parent / "cascade_workflow" / "src" / "utils",  # Original structure
+    current_dir.parent / "utils",  # Organized structure
+    current_dir / "utils",  # If utils is copied alongside
+    current_dir,  # If utils files are copied to same directory
+]
+
+for utils_path in utils_candidates:
+    if utils_path.exists() and (utils_path / "partitioned_results_writer.py").exists():
+        sys.path.append(str(utils_path))
+        break
+else:
+    # Fallback: try to import directly (assume it's available in PYTHONPATH)
+    pass
+
+try:
+    from partitioned_results_writer import (
+        PartitionedResultsWriter,
+        ConcurrentPartitionedWriter,
+        create_simulation_partition_config
+    )
+except ImportError as e:
+    # If import fails, check if utils files are in current directory
+    if (current_dir / "partitioned_results_writer.py").exists():
+        sys.path.append(str(current_dir))
+        from partitioned_results_writer import (
+            PartitionedResultsWriter,
+            ConcurrentPartitionedWriter,
+            create_simulation_partition_config
+        )
+    else:
+        raise ImportError(f"Could not import partitioned_results_writer: {e}. "
+                         f"Checked paths: {[str(p) for p in utils_candidates]}")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -252,36 +282,87 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
             metrics['parsimony_score'] = np.nan
         
         try:
-            # cPHS calculation using stellars - use all available cores
+            # cPHS calculation using stellars - calculate for both parameter sets
             max_threads = os.environ.get('LSB_MAX_NUM_PROCESSORS', '20')
-            phs_result = stellars.phs(
-                tree_newick=optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True),
-                character_matrix=optimized_tree.character_matrix.to_numpy().tolist(),
-                mutation_rate=lam,
-                collision_probability=q,
+            tree_newick = optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True)
+            character_matrix = optimized_tree.character_matrix.to_numpy().tolist()
+
+            # Calculate cPHS with simulation parameters
+            phs_result_sim = stellars.phs(
+                tree_newick=tree_newick,
+                character_matrix=character_matrix,
+                mutation_rate=lam_from_simulation,
+                collision_probability=q_from_simulation,
                 missing_state=-1,
                 unedited_state=0,
-                use_internal_states=True,  # Use reconstructed internal states
+                use_internal_states=True,
                 max_threads=int(max_threads)
             )
-            metrics['cPHS'] = phs_result.phs_score
+            metrics['cPHS_simulation'] = phs_result_sim.phs_score
+
+            # Calculate cPHS with ground truth parameters if available
+            if lam_from_gt is not None and q_from_gt is not None:
+                phs_result_gt = stellars.phs(
+                    tree_newick=tree_newick,
+                    character_matrix=character_matrix,
+                    mutation_rate=lam_from_gt,
+                    collision_probability=q_from_gt,
+                    missing_state=-1,
+                    unedited_state=0,
+                    use_internal_states=True,
+                    max_threads=int(max_threads)
+                )
+                metrics['cPHS_gt'] = phs_result_gt.phs_score
+            else:
+                metrics['cPHS_gt'] = np.nan
+
+            # Keep legacy cPHS field for backward compatibility (using simulation parameters)
+            metrics['cPHS'] = phs_result_sim.phs_score
+
         except Exception as e:
             logger.warning(f"cPHS calculation failed: {e}")
             metrics['cPHS'] = np.nan
+            metrics['cPHS_simulation'] = np.nan
+            metrics['cPHS_gt'] = np.nan
         
         try:
-            # Likelihood score using stellars (more reliable than Cassiopeia's)
-            metrics['likelihood_score'] = stellars.likelihood_score(
-                tree_newick=optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True),
-                character_matrix=optimized_tree.character_matrix.to_numpy(),
-                mutation_rate=lam,
-                collision_probability=q,
-                missing_state=-1,  # Standard missing state indicator
-                unedited_state=0   # Standard unedited state
+            # Likelihood score using stellars - calculate for both parameter sets
+            tree_newick = optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True)
+            character_matrix = optimized_tree.character_matrix.to_numpy()
+
+            # Calculate likelihood with simulation parameters
+            likelihood_result_sim = stellars.likelihood_score(
+                tree_newick=tree_newick,
+                character_matrix=character_matrix,
+                mutation_rate=lam_from_simulation,
+                collision_probability=q_from_simulation,
+                missing_state=-1,
+                unedited_state=0
             )
+            metrics['likelihood_score_simulation'] = likelihood_result_sim
+
+            # Calculate likelihood with ground truth parameters if available
+            if lam_from_gt is not None and q_from_gt is not None:
+                likelihood_result_gt = stellars.likelihood_score(
+                    tree_newick=tree_newick,
+                    character_matrix=character_matrix,
+                    mutation_rate=lam_from_gt,
+                    collision_probability=q_from_gt,
+                    missing_state=-1,
+                    unedited_state=0
+                )
+                metrics['likelihood_score_gt'] = likelihood_result_gt
+            else:
+                metrics['likelihood_score_gt'] = np.nan
+
+            # Keep legacy likelihood_score field for backward compatibility (using simulation parameters)
+            metrics['likelihood_score'] = likelihood_result_sim
+
         except Exception as e:
             logger.warning(f"Likelihood calculation failed: {e}")
             metrics['likelihood_score'] = np.nan
+            metrics['likelihood_score_simulation'] = np.nan
+            metrics['likelihood_score_gt'] = np.nan
         
         logger.info(f"Reconstruction completed successfully: {solver_name} on tier {tier_num}")
         triplets_val = metrics.get('triplets_distance', 'N/A')
@@ -321,6 +402,8 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
             'triplets_distance': None,
             'RF_distance': None,
             'cPHS': None,
+            'cPHS_simulation': None,
+            'cPHS_gt': None,
             'parsimony_score': None,
             'total_mutations': None,
             'parsimony_computation_time_ms': None,
@@ -329,6 +412,9 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
             'likelihood': None,
             'likelihood_computation_time_ms': None,
             'likelihood_method': None,
+            'likelihood_score': None,
+            'likelihood_score_simulation': None,
+            'likelihood_score_gt': None,
             'n_characters': None,
             'n_leaves': None,
             'error': str(e),
@@ -411,16 +497,33 @@ class ReconstructionWorker:
                 'tier_name': tier_config.name
             }
             
-            # Save to partitioned parquet structure
+            # Save to partitioned parquet structure - create separate rows for each parameter source
             try:
-                # Flatten the result for tabular format
-                flattened_result = self.flatten_result_for_parquet(result)
-                
-                # Add to partitioned writer (handles batching and partitioning automatically)
-                self.partitioned_writer.add_result(flattened_result)
-                
-                logger.info(f"Result added to partitioned storage (tier={self.tier}, solver={self.solver})")
-                
+                # Create two separate result rows - one for simulation, one for ground truth
+
+                # 1. Simulation parameters result
+                result_simulation = result.copy()
+                result_simulation['phs_lam_source'] = 'simulation'
+                result_simulation['phs_q_source'] = 'simulation'
+                result_simulation['cPHS'] = result.get('cPHS_simulation', result.get('cPHS'))  # Use simulation PHS
+
+                flattened_result_sim = self.flatten_result_for_parquet(result_simulation)
+                self.partitioned_writer.add_result(flattened_result_sim)
+
+                # 2. Ground truth parameters result (only if GT parameters are available)
+                if result.get('cPHS_gt') is not None and not np.isnan(result.get('cPHS_gt', np.nan)):
+                    result_gt = result.copy()
+                    result_gt['phs_lam_source'] = 'ground_truth'
+                    result_gt['phs_q_source'] = 'ground_truth'
+                    result_gt['cPHS'] = result.get('cPHS_gt')  # Use ground truth PHS
+
+                    flattened_result_gt = self.flatten_result_for_parquet(result_gt)
+                    self.partitioned_writer.add_result(flattened_result_gt)
+
+                    logger.info(f"Results added to partitioned storage (tier={self.tier}, solver={self.solver}) - both simulation and ground truth")
+                else:
+                    logger.info(f"Result added to partitioned storage (tier={self.tier}, solver={self.solver}) - simulation only (GT parameters unavailable)")
+
             except Exception as e:
                 logger.warning(f"Failed to save to partitioned storage: {e}")
             
@@ -457,7 +560,7 @@ class ReconstructionWorker:
         
         # Copy basic fields
         for key, value in result.items():
-            if key in ['worker_info', 'parsimony_score', 'likelihood_score']:
+            if key in ['worker_info', 'parsimony_score', 'likelihood_score', 'likelihood_score_simulation', 'likelihood_score_gt']:
                 continue  # Handle these separately
             flattened[key] = value
         
@@ -489,7 +592,33 @@ class ReconstructionWorker:
                 flattened['n_leaves'] = like.get('n_leaves', None)
             else:
                 flattened['log_likelihood'] = like
-        
+
+        # Flatten likelihood_score_simulation if it's a dict (stellars format)
+        if 'likelihood_score_simulation' in result:
+            like_sim = result['likelihood_score_simulation']
+            if isinstance(like_sim, dict):
+                flattened['log_likelihood_simulation'] = like_sim.get('log_likelihood', like_sim)
+                flattened['likelihood_simulation'] = like_sim.get('likelihood', None)
+                flattened['likelihood_computation_time_ms_simulation'] = like_sim.get('computation_time_ms', None)
+                flattened['likelihood_method_simulation'] = like_sim.get('method_used', None)
+                flattened['n_characters_simulation'] = like_sim.get('n_characters', None)
+                flattened['n_leaves_simulation'] = like_sim.get('n_leaves', None)
+            else:
+                flattened['log_likelihood_simulation'] = like_sim
+
+        # Flatten likelihood_score_gt if it's a dict (stellars format)
+        if 'likelihood_score_gt' in result:
+            like_gt = result['likelihood_score_gt']
+            if isinstance(like_gt, dict):
+                flattened['log_likelihood_gt'] = like_gt.get('log_likelihood', like_gt)
+                flattened['likelihood_gt'] = like_gt.get('likelihood', None)
+                flattened['likelihood_computation_time_ms_gt'] = like_gt.get('computation_time_ms', None)
+                flattened['likelihood_method_gt'] = like_gt.get('method_used', None)
+                flattened['n_characters_gt'] = like_gt.get('n_characters', None)
+                flattened['n_leaves_gt'] = like_gt.get('n_leaves', None)
+            else:
+                flattened['log_likelihood_gt'] = like_gt
+
         return flattened
     
     def update_status(self, level: str, component: str, status: str, details: Any = None) -> None:

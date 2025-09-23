@@ -40,7 +40,7 @@ echo "Executing Cas9 recording worker for Tier $2..."
 python cas9_recording_worker.py \
     --gt_tree_path "$1" \
     --tier "$2" \
-    --output_dir cas9_instances \
+    --output_dir {SHARED_DIR}/cas9_instances \
     --shared_dir {SHARED_DIR}
 
 exit_code=$?
