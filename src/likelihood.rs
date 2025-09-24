@@ -208,7 +208,7 @@ fn calculate_tree_log_likelihood(
             let parent_node = tree.get_node(parent_id).unwrap();
             
             // Get branch length (time)
-            let branch_length = get_branch_length(&node, parent_node);
+            let branch_length = get_branch_length(tree, &node, parent_node);
             
             // Get states for parent and child
             let parent_states = get_node_states_likelihood(parent_node, &taxa_to_idx, character_matrix, internal_character_states);
@@ -233,10 +233,14 @@ fn calculate_tree_log_likelihood(
 }
 
 /// Get branch length between child and parent nodes
-fn get_branch_length(_child_node: &Node<String, f32, f32>, _parent_node: &Node<String, f32, f32>) -> f64 {
-    // In the absence of explicit branch lengths, use unit length
-    // In practice, this would come from the tree structure or be estimated
-    1.0
+fn get_branch_length(tree: &PhyloTree, child_node: &Node<String, f32, f32>, parent_node: &Node<String, f32, f32>) -> f64 {
+    // Extract actual branch length from tree structure
+    if let Some(branch_length) = tree.get_edge_weight(parent_node.get_id(), child_node.get_id()) {
+        branch_length as f64
+    } else {
+        // Fallback to unit length if no branch length available
+        1.0
+    }
 }
 
 /// Get character states for likelihood calculation
