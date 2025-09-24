@@ -170,8 +170,8 @@ lsf:
       
     reconstruction:
       cores: 65
-      memory_gb: 1.5  
-      time_limit: "6:00"  # 6 hours maximum per reconstruction
+      memory_gb: 1.5
+      # time_limit removed - let queue handle time limits
       
   # log_dir is now derived from shared_dir/logs - no hardcoded paths
 

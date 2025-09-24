@@ -319,15 +319,23 @@ class Cas9RecordingWorker:
             config_shared_dir = self.config.get('output', {}).get('shared_dir', str(self.shared_dir))
             output_base = Path(config_shared_dir)
 
-            # Build bsub command with proper indexing
+            # Get LSF configuration for reconstruction jobs
+            lsf_config = self.config.get('lsf', {})
+            reconstruction_queue = lsf_config.get('queues', {}).get('reconstruction', 'long')
+            recon_resources = lsf_config.get('resources', {}).get('reconstruction', {})
+
+            cores = recon_resources.get('cores', 65)
+            memory_gb = recon_resources.get('memory_gb', 1.5)
+
+            # Build bsub command with config-based resources (let queue handle time limits)
             cmd = [
                 'bsub',
                 '-J', f'reconstruct_instance{self.instance_id}_sim{self.cas9_simulation_id}_recon{recon_id}_tier{self.tier}_{solver}',
                 '-oo', f"{self.shared_dir.resolve()}/logs/reconstruct_instance{self.instance_id}_sim{self.cas9_simulation_id}_recon{recon_id}_tier{self.tier}_{solver}_%J.out",
                 '-eo', f"{self.shared_dir.resolve()}/logs/reconstruct_instance{self.instance_id}_sim{self.cas9_simulation_id}_recon{recon_id}_tier{self.tier}_{solver}_%J.err",
-                '-W', '0:45',  # 45 minutes
-                '-n', '3', '-R', 'span[hosts=1]',
-                '-R', 'rusage[mem=1.5GB]',
+                '-q', reconstruction_queue,                # Use configured queue (let queue set time limits)
+                '-n', str(cores), '-R', 'span[hosts=1]',  # Use configured cores
+                '-R', f'rusage[mem={memory_gb}GB]',        # Use configured memory
                 'python', str(Path(__file__).parent / 'reconstruction_worker.py'),
                 '--cas9_instance_path', str(self.cas9_instance_path),
                 '--solver', solver,

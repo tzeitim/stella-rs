@@ -44,7 +44,7 @@ def setup_shared_directory(shared_dir: Path) -> None:
         logger.info(f"Created directory: {dir_path}")
 
 
-def copy_worker_scripts(shared_dir: Path, source_dir: Path, conda_environment: str = "cas11") -> None:
+def copy_worker_scripts(shared_dir: Path, source_dir: Path, conda_environment: str = "cas11", config: dict = None) -> None:
     """Copy worker scripts and job templates to shared directory."""
     logger.info("Copying worker scripts to shared directory...")
     
@@ -86,10 +86,10 @@ def copy_worker_scripts(shared_dir: Path, source_dir: Path, conda_environment: s
             logger.warning(f"Script not found: {source}")
     
     # Copy LSF job templates with path substitution
-    copy_job_templates_with_substitution(shared_dir, source_dir, conda_environment)
+    copy_job_templates_with_substitution(shared_dir, source_dir, conda_environment, config)
 
 
-def substitute_placeholders(template_content: str, shared_dir: Path, conda_environment: str = "cas11") -> str:
+def substitute_placeholders(template_content: str, shared_dir: Path, conda_environment: str = "cas11", config: dict = None) -> str:
     """Replace placeholders in job templates with actual paths."""
     import os
 
@@ -118,10 +118,50 @@ def substitute_placeholders(template_content: str, shared_dir: Path, conda_envir
     substituted = substituted.replace('{CONDA_PREFIX}', conda_prefix)
     substituted = substituted.replace('{CONDA_ENVIRONMENT}', conda_environment)
 
+    # Replace LSF configuration placeholders if config is provided
+    if config:
+        lsf_config = config.get('lsf', {})
+        queues = lsf_config.get('queues', {})
+        resources = lsf_config.get('resources', {})
+
+        # Master GT LSF parameters
+        master_gt_queue = queues.get('master_gt', 'short')
+        master_gt_resources = resources.get('master_gt', {})
+        master_gt_cores = master_gt_resources.get('cores', 10)
+        master_gt_memory = master_gt_resources.get('memory_gb', 1.5)
+        master_gt_time_limit = master_gt_resources.get('time_limit')
+
+        substituted = substituted.replace('{MASTER_GT_QUEUE}', master_gt_queue)
+        substituted = substituted.replace('{MASTER_GT_CORES}', str(master_gt_cores))
+        substituted = substituted.replace('{MASTER_GT_MEMORY}', f'{master_gt_memory}GB')
+
+        # Handle time limit conditionally - add comment if not specified
+        if master_gt_time_limit:
+            substituted = substituted.replace('{MASTER_GT_TIME_LIMIT}', f'#BSUB -W {master_gt_time_limit}\n')
+        else:
+            substituted = substituted.replace('{MASTER_GT_TIME_LIMIT}', '# time_limit not specified - letting queue handle time limits\n')
+
+        # CAS9 recording LSF parameters
+        cas9_recording_queue = queues.get('cas9_recording', 'short')
+        cas9_recording_resources = resources.get('cas9_recording', {})
+        cas9_recording_cores = cas9_recording_resources.get('cores', 20)
+        cas9_recording_memory = cas9_recording_resources.get('memory_gb', 1.5)
+        cas9_recording_time_limit = cas9_recording_resources.get('time_limit')
+
+        substituted = substituted.replace('{CAS9_RECORDING_QUEUE}', cas9_recording_queue)
+        substituted = substituted.replace('{CAS9_RECORDING_CORES}', str(cas9_recording_cores))
+        substituted = substituted.replace('{CAS9_RECORDING_MEMORY}', f'{cas9_recording_memory}GB')
+
+        # Handle time limit conditionally
+        if cas9_recording_time_limit:
+            substituted = substituted.replace('{CAS9_RECORDING_TIME_LIMIT}', f'#BSUB -W {cas9_recording_time_limit}\n')
+        else:
+            substituted = substituted.replace('{CAS9_RECORDING_TIME_LIMIT}', '# time_limit not specified - letting queue handle time limits\n')
+
     return substituted
 
 
-def copy_job_templates_with_substitution(shared_dir: Path, source_dir: Path, conda_environment: str = "cas11") -> None:
+def copy_job_templates_with_substitution(shared_dir: Path, source_dir: Path, conda_environment: str = "cas11", config: dict = None) -> None:
     """Copy job templates and substitute placeholders with actual paths."""
     logger.info("Copying LSF job templates...")
     
@@ -155,7 +195,7 @@ def copy_job_templates_with_substitution(shared_dir: Path, source_dir: Path, con
                 template_content = f.read()
             
             # Substitute placeholders
-            substituted_content = substitute_placeholders(template_content, shared_dir, conda_environment)
+            substituted_content = substitute_placeholders(template_content, shared_dir, conda_environment, config)
             
             # Write to destination
             with open(dest_path, 'w') as f:
@@ -283,7 +323,7 @@ def main():
         setup_shared_directory(shared_dir)
         
         # Step 2: Copy worker scripts
-        copy_worker_scripts(shared_dir, source_dir, conda_environment)
+        copy_worker_scripts(shared_dir, source_dir, conda_environment, config_obj.config)
         
         if args.setup_only:
             logger.info("Setup complete. Use --submit to launch the job cascade.")

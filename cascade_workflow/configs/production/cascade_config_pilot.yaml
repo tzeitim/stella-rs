@@ -111,7 +111,7 @@ lsf:
     reconstruction:
       cores: 5  # Increased from 3
       memory_gb: 4.0  # Increased from 1.5GB
-      time_limit: "3:00"  # Increased from 0:45 - bigger trees take longer
+      # time_limit removed - let queue handle time limits
       
   # log_dir is now derived from shared_dir/logs - no hardcoded paths
 

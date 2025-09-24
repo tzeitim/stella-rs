@@ -1,10 +1,10 @@
 #!/bin/bash
 #BSUB -J gt_master
-#BSUB -oo {SHARED_DIR}/logs/master_gt_%J.out  
+#BSUB -oo {SHARED_DIR}/logs/master_gt_%J.out
 #BSUB -eo {SHARED_DIR}/logs/master_gt_%J.err
-#BSUB -W 1:00
-#BSUB -n 10 -R "span[hosts=1]"
-#BSUB -R rusage[mem=1.5GB]
+#BSUB -q {MASTER_GT_QUEUE}
+{MASTER_GT_TIME_LIMIT}#BSUB -n {MASTER_GT_CORES} -R "span[hosts=1]"
+#BSUB -R rusage[mem={MASTER_GT_MEMORY}]
 
 # Master GT Job - Level 1 of Cascading LSF System
 # Generates GT tree and submits all Cas9 recording jobs

@@ -2,9 +2,9 @@
 #BSUB -J cas9_tier{TIER}
 #BSUB -oo {SHARED_DIR}/logs/cas9_tier{TIER}_%J.out
 #BSUB -eo {SHARED_DIR}/logs/cas9_tier{TIER}_%J.err
-#BSUB -W 0:30
-#BSUB -n 20 -R "span[hosts=1]"
-#BSUB -R rusage[mem=1.5GB]
+#BSUB -q {CAS9_RECORDING_QUEUE}
+{CAS9_RECORDING_TIME_LIMIT}#BSUB -n {CAS9_RECORDING_CORES} -R "span[hosts=1]"
+#BSUB -R rusage[mem={CAS9_RECORDING_MEMORY}]
 
 # Cas9 Recording Job - Level 2 of Cascading LSF System
 # Applies Cas9 recording for Tier {TIER} and submits reconstruction jobs

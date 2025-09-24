@@ -68,7 +68,7 @@ def main():
         if args.summary:
             print("\n=== Summary Statistics ===")
             
-            numeric_cols = ['RF_distance', 'triplets_distance', 'cPHS', 'cPHS_simulation', 'cPHS_gt',
+            numeric_cols = ['RF_distance', 'triplets_distance', 'cPHS', 'cPHS_gt',
                            'computation_time_seconds']
             available_cols = [col for col in numeric_cols if col in df.columns]
             
@@ -82,7 +82,6 @@ def main():
                     pl.col('RF_distance').mean().alias('avg_rf_distance'),
                     pl.col('triplets_distance').mean().alias('avg_triplets_distance'),
                     pl.col('cPHS').mean().alias('avg_cphs'),
-                    pl.col('cPHS_simulation').mean().alias('avg_cphs_simulation'),
                     pl.len().alias('count')
                 ]).sort(['cas9_tier', 'solver'])
                 print(grouped)

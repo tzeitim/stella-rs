@@ -317,7 +317,7 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
                 use_provided_internal_states=True,  # Use Cassiopeia's exact internal states
                 leaf_names=leaf_names  # CRITICAL FIX: Proper character matrix mapping
             )
-            metrics['cPHS_simulation'] = phs_result_sim['phs_score']
+            metrics['cPHS'] = phs_result_sim['phs_score']
 
             # Calculate cPHS with ground truth parameters using CORRECTED method if available
             if lam_from_gt is not None and q_from_gt is not None:
@@ -337,16 +337,13 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
                 metrics['cPHS_gt'] = np.nan
 
             # Debug logging
-            logger.info(f"CORRECTED cPHS - Simulation: {metrics['cPHS_simulation']:.2e}, "
+            logger.info(f"CORRECTED cPHS: {metrics['cPHS']:.2e}, "
                        f"Ground Truth: {metrics.get('cPHS_gt', 'N/A')}")
 
-            # Legacy compatibility field
-            metrics['cPHS'] = metrics['cPHS_simulation']
 
         except Exception as e:
             logger.warning(f"CORRECTED cPHS calculation failed: {e}")
             metrics['cPHS'] = np.nan
-            metrics['cPHS_simulation'] = np.nan
             metrics['cPHS_gt'] = np.nan
         
         try:
@@ -426,7 +423,6 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
             'triplets_distance': None,
             'RF_distance': None,
             'cPHS': None,
-            'cPHS_simulation': None,
             'cPHS_gt': None,
             'parsimony_score': None,
             'total_mutations': None,
@@ -569,6 +565,7 @@ class ReconstructionWorker:
                 'tier_name': tier_config.name
             }
             
+
             # Save to partitioned parquet structure - create separate rows for each parameter source
             try:
                 # Create two separate result rows - one for simulation, one for ground truth
@@ -577,7 +574,7 @@ class ReconstructionWorker:
                 result_simulation = result.copy()
                 result_simulation['phs_lam_source'] = 'simulation'
                 result_simulation['phs_q_source'] = 'simulation'
-                result_simulation['cPHS'] = result.get('cPHS_simulation', result.get('cPHS'))  # Use simulation PHS
+                # cPHS contains the simulation-based result
 
                 flattened_result_sim = self.flatten_result_for_parquet(result_simulation)
                 self.partitioned_writer.add_result(flattened_result_sim)
@@ -587,7 +584,9 @@ class ReconstructionWorker:
                     result_gt = result.copy()
                     result_gt['phs_lam_source'] = 'ground_truth'
                     result_gt['phs_q_source'] = 'ground_truth'
-                    result_gt['cPHS'] = result.get('cPHS_gt')  # Use ground truth PHS
+                    # cPHS represents the primary simulation-based metric
+                    # The cPHS_gt value is still available in the cPHS_gt column
+                    logger.info(f"Ground truth row: cPHS={result_gt['cPHS']:.6f} (simulation), cPHS_gt={result_gt['cPHS_gt']:.6f} (ground truth)")
 
                     flattened_result_gt = self.flatten_result_for_parquet(result_gt)
                     self.partitioned_writer.add_result(flattened_result_gt)
