@@ -23,7 +23,7 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 # Activate conda environment
 eval "$(/home/projects/nyosef/pedro/miniforge3/bin/conda shell.bash hook)"
 source ~/miniforge3/etc/profile.d/mamba.sh
-conda activate cass
+conda activate {CONDA_ENVIRONMENT}
 
 # Validate inputs
 if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then

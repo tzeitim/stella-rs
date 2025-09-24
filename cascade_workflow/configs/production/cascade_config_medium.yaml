@@ -4,16 +4,17 @@
 # Execution control
 execution:
   random_seed: 42  # Master seed for reproducibility
-  num_gt_instances: 50  # Test with 10 instances (0-9)
-  cas9_simulations_per_gt: 50  # Generate 5 Cas9 simulations per GT for statistics
+  num_gt_instances: 1  # Test with 10 instances (0-9)
+  cas9_simulations_per_gt: 2  # Generate 5 Cas9 simulations per GT for statistics
   parallel_execution: true  # Whether to run jobs in parallel
   run_name: "medium_scale_test"  # Name for this experimental run
+  conda_environment: "cas11"  # Conda environment for job execution (default: cas11)
   
 # Ground truth generation parameters
 ground_truth:
   tree_config:
-    N: 15000 # Full simulated population: Total number of cells in the original simulated tree 
-    n: 2500  #  Observed/sampled population: Number of cells actually "sequenced" or analyzed 
+    N: 150 # Full simulated population: Total number of cells in the original simulated tree 
+    n: 100  #  Observed/sampled population: Number of cells actually "sequenced" or analyzed 
     fitness:
       initial_birth_scale: 2
       #fitness_base: 1.1  # or 1.0          # NO fitness advantage (neutral)
@@ -35,9 +36,12 @@ cas9_tiers:
     mutation_rate_pattern: "exponential_decay"
     base_mutation_rate: 2.0
     state_priors_exponent: 1e-6
-    
+    # Missing data controls
+    heritable_silencing_rate: 0.0001    # Very low missing data for high fidelity
+    stochastic_silencing_rate: 0.005    # Minimal stochastic dropout
+
   2:
-    name: "Tier 2 - High Fidelity"  
+    name: "Tier 2 - High Fidelity"
     description: "Good recording: 50 integrations × 20 sites"
     k: 10
     cassette_size: 10
@@ -45,9 +49,25 @@ cas9_tiers:
     mutation_rate_pattern: "uniform"
     base_mutation_rate: 1.2
     state_priors_exponent: 1e-4
-    
+    # Missing data controls
+    heritable_silencing_rate: 0.001     # Low missing data
+    stochastic_silencing_rate: 0.01     # Standard stochastic dropout
+
   3:
-    name: "Tier 3 - Medium Fidelity"
+    name: "Tier 3 - High Fidelity II"
+    description: "Good recording with slightly more missing data: 50 integrations × 20 sites"
+    k: 10
+    cassette_size: 10
+    m: 20
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 1.2
+    state_priors_exponent: 1e-4
+    # Missing data controls
+    heritable_silencing_rate: 0.0015    # Slightly higher missing data
+    stochastic_silencing_rate: 0.015    # Slightly higher stochastic dropout
+
+  4:
+    name: "Tier 4 - Medium Fidelity"
     description: "Moderate recording: 20 integrations × 10 sites"
     k: 5
     cassette_size: 3
@@ -55,9 +75,25 @@ cas9_tiers:
     mutation_rate_pattern: "uniform"
     base_mutation_rate: 1.0
     state_priors_exponent: 1e-4
-    
-  4:
-    name: "Tier 4 - Low Fidelity"
+    # Missing data controls
+    heritable_silencing_rate: 0.005     # Moderate missing data
+    stochastic_silencing_rate: 0.02     # Increased stochastic dropout
+
+  5:
+    name: "Tier 5 - Medium Fidelity II"
+    description: "Moderate recording with higher missing data: 20 integrations × 10 sites"
+    k: 5
+    cassette_size: 3
+    m: 20
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 1.0
+    state_priors_exponent: 1e-4
+    # Missing data controls
+    heritable_silencing_rate: 0.0075    # Higher moderate missing data
+    stochastic_silencing_rate: 0.025    # Higher stochastic dropout
+
+  6:
+    name: "Tier 6 - Low Fidelity"
     description: "Poor recording: 5 integrations × 3 sites"
     k: 5
     cassette_size: 3
@@ -65,7 +101,22 @@ cas9_tiers:
     mutation_rate_pattern: "uniform"
     base_mutation_rate: 0.8
     state_priors_exponent: 1e-3
+    # Missing data controls
+    heritable_silencing_rate: 0.01      # High missing data for low fidelity
+    stochastic_silencing_rate: 0.05     # High stochastic dropout
 
+  7:
+    name: "Tier 7 - Low Fidelity II"
+    description: "Poor recording with maximum missing data: 5 integrations × 3 sites"
+    k: 5
+    cassette_size: 3
+    m: 10
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 0.8
+    state_priors_exponent: 1e-3
+    # Missing data controls
+    heritable_silencing_rate: 0.02      # Very high missing data for low fidelity
+    stochastic_silencing_rate: 0.05     # High stochastic dropout
 # Solver configuration
 solvers:
   enabled:

@@ -30,11 +30,14 @@ class Cas9TierConfig:
     name: str
     description: str
     k: int  # number of cassettes
-    cassette_size: int  # sites per cassette  
+    cassette_size: int  # sites per cassette
     m: int  # mutations per site
     mutation_rate_pattern: str
     base_mutation_rate: float
     state_priors_exponent: float
+    # Missing data controls (new parameters)
+    heritable_silencing_rate: float = 0.0001
+    stochastic_silencing_rate: float = 0.01
     
     @property
     def total_sites(self) -> int:

@@ -111,7 +111,7 @@ CAS9_TIERS = {
 # Solver definitions
 # SOLVERS defined in solver_config.py
 
-def apply_cas9_recording_to_tree(gt_tree, tier: Cas9SimulationTier):
+def apply_cas9_recording_to_tree(gt_tree, tier: Cas9SimulationTier, tier_number: int, config: dict = None):
     """Apply Cas9 recording simulation to ground truth tree for specified tier"""
     logger.info(f"Applying Cas9 recording for {tier.name} tier")
     
@@ -143,22 +143,34 @@ def apply_cas9_recording_to_tree(gt_tree, tier: Cas9SimulationTier):
     lam = tier.mutation_rates
     priors = generate_state_priors(k, m)
     
-    # Apply Cas9 lineage tracing simulation
+    # Get tier-specific missing data parameters from config
+    tier_config_dict = config.get('cas9_tiers', {}).get(tier_number, {}) if config else {}
+    heritable_silencing_rate = tier_config_dict.get('heritable_silencing_rate', 0.0001)
+    stochastic_silencing_rate = tier_config_dict.get('stochastic_silencing_rate', 0.01)
+
+    logger.info(f"Missing data rates for Tier {tier_number}: "
+                f"heritable={heritable_silencing_rate}, stochastic={stochastic_silencing_rate}")
+
+    # Apply Cas9 lineage tracing simulation with tier-specific missing data controls
     lt_simulator = Cas9LineageTracingDataSimulator(
         number_of_cassettes=k,
         size_of_cassette=1,
         number_of_states=m,
         mutation_rate=lam,
-        state_priors=priors
+        state_priors=priors,
+        heritable_silencing_rate=heritable_silencing_rate,
+        stochastic_silencing_rate=stochastic_silencing_rate,
+        heritable_missing_data_state=-1,  # Standard missing data encoding
+        stochastic_missing_data_state=-1  # Standard missing data encoding
     )
     
     # Overlay the Cas9 data on the tree
     lt_simulator.overlay_data(tree_with_cas9)
     
-    # Update tree parameters
+    # Update tree parameters with actual missing data rates
     tree_with_cas9.priors = {i: priors for i in range(k)}
-    tree_with_cas9.parameters["stochastic_missing_rate"] = 0
-    tree_with_cas9.parameters["heritable_missing_rate"] = 0
+    tree_with_cas9.parameters["stochastic_missing_rate"] = stochastic_silencing_rate
+    tree_with_cas9.parameters["heritable_missing_rate"] = heritable_silencing_rate
 
     # Propagate GT parameters from original tree for downstream comparison
     if hasattr(gt_tree, 'parameters'):
@@ -195,9 +207,10 @@ class Cas9RecordingWorker:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (self.shared_dir / "logs").mkdir(parents=True, exist_ok=True)
 
-        # Validate tier
-        if tier not in CAS9_TIERS:
-            raise ValueError(f"Invalid tier: {tier}. Must be one of {list(CAS9_TIERS.keys())}")
+        # Validate tier against config
+        config_tiers = list(self.config.get('cas9_tiers', {}).keys())
+        if tier not in config_tiers:
+            raise ValueError(f"Invalid tier: {tier}. Must be one of {config_tiers}")
     
     def load_gt_tree(self):
         """Load the ground truth tree."""
@@ -219,13 +232,23 @@ class Cas9RecordingWorker:
             # Load GT tree
             gt_tree = self.load_gt_tree()
             
-            # Get tier configuration
-            tier_config = CAS9_TIERS[self.tier]
+            # Get tier configuration from config
+            tier_config_dict = self.config.get('cas9_tiers', {}).get(self.tier, {})
+            if not tier_config_dict:
+                raise ValueError(f"Tier {self.tier} configuration not found")
+
+            # Create tier config object from config data
+            from config_loader import Cas9TierConfig
+            tier_config = Cas9TierConfig(**tier_config_dict)
+
             logger.info(f"Tier config: {tier_config.name}")
             logger.info(f"Recording sites: {tier_config.k * tier_config.cassette_size}")
             
-            # Apply Cas9 recording
-            cas9_tree = apply_cas9_recording_to_tree(gt_tree, tier_config)
+            # Generate mutation rates for the tier
+            tier_config.mutation_rates = tier_config.generate_mutation_rates()
+
+            # Apply Cas9 recording with config for missing data parameters
+            cas9_tree = apply_cas9_recording_to_tree(gt_tree, tier_config, self.tier, self.config)
             
             # Save Cas9 instance to configured directory with proper indexing
             config_shared_dir = self.config.get('output', {}).get('shared_dir', str(self.shared_dir))

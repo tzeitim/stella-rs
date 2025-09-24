@@ -74,10 +74,32 @@ class StreamingResultsAggregator:
         if self.consolidated_path.exists():
             # Read existing, concat, and write back
             existing_df = pl.scan_parquet(str(self.consolidated_path)).collect()
+
+            # Align schemas before concatenation - add missing columns as null
+            existing_cols = set(existing_df.columns)
+            new_cols = set(df.columns)
+
+            # Add missing columns to existing DataFrame with proper data types
+            for col in new_cols - existing_cols:
+                # Infer the data type from the new DataFrame
+                col_dtype = df[col].dtype
+                existing_df = existing_df.with_columns(pl.lit(None, dtype=col_dtype).alias(col))
+                self.logger.info(f"Added missing column '{col}' ({col_dtype}) to existing data")
+
+            # Add missing columns to new DataFrame with proper data types
+            for col in existing_cols - new_cols:
+                # Infer the data type from the existing DataFrame
+                col_dtype = existing_df[col].dtype
+                df = df.with_columns(pl.lit(None, dtype=col_dtype).alias(col))
+                self.logger.info(f"Added missing column '{col}' ({col_dtype}) to new data")
+
+            # Ensure column order matches
+            df = df.select(existing_df.columns)
+
             combined_df = pl.concat([existing_df, df])
         else:
             combined_df = df
-            
+
         # Write back to parquet
         combined_df.write_parquet(str(self.consolidated_path))
     

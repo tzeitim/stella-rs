@@ -44,7 +44,7 @@ def setup_shared_directory(shared_dir: Path) -> None:
         logger.info(f"Created directory: {dir_path}")
 
 
-def copy_worker_scripts(shared_dir: Path, source_dir: Path) -> None:
+def copy_worker_scripts(shared_dir: Path, source_dir: Path, conda_environment: str = "cas11") -> None:
     """Copy worker scripts and job templates to shared directory."""
     logger.info("Copying worker scripts to shared directory...")
     
@@ -86,16 +86,16 @@ def copy_worker_scripts(shared_dir: Path, source_dir: Path) -> None:
             logger.warning(f"Script not found: {source}")
     
     # Copy LSF job templates with path substitution
-    copy_job_templates_with_substitution(shared_dir, source_dir)
+    copy_job_templates_with_substitution(shared_dir, source_dir, conda_environment)
 
 
-def substitute_placeholders(template_content: str, shared_dir: Path) -> str:
+def substitute_placeholders(template_content: str, shared_dir: Path, conda_environment: str = "cas11") -> str:
     """Replace placeholders in job templates with actual paths."""
     import os
-    
+
     # Get absolute path for shared directory
     shared_dir_abs = shared_dir.resolve()
-    
+
     # Get conda prefix dynamically
     conda_prefix = os.environ.get('CONDA_PREFIX')
     if not conda_prefix:
@@ -106,20 +106,22 @@ def substitute_placeholders(template_content: str, shared_dir: Path) -> str:
             if os.path.exists(potential_path):
                 conda_prefix = potential_path
                 break
-        
+
         if not conda_prefix:
             raise RuntimeError("Could not detect conda installation. Set CONDA_PREFIX environment variable.")
-    
+
     logger.info(f"Using conda prefix: {conda_prefix}")
-    
+    logger.info(f"Using conda environment: {conda_environment}")
+
     # Replace placeholders with actual paths
     substituted = template_content.replace('{SHARED_DIR}', str(shared_dir_abs))
     substituted = substituted.replace('{CONDA_PREFIX}', conda_prefix)
-    
+    substituted = substituted.replace('{CONDA_ENVIRONMENT}', conda_environment)
+
     return substituted
 
 
-def copy_job_templates_with_substitution(shared_dir: Path, source_dir: Path) -> None:
+def copy_job_templates_with_substitution(shared_dir: Path, source_dir: Path, conda_environment: str = "cas11") -> None:
     """Copy job templates and substitute placeholders with actual paths."""
     logger.info("Copying LSF job templates...")
     
@@ -153,7 +155,7 @@ def copy_job_templates_with_substitution(shared_dir: Path, source_dir: Path) -> 
                 template_content = f.read()
             
             # Substitute placeholders
-            substituted_content = substitute_placeholders(template_content, shared_dir)
+            substituted_content = substitute_placeholders(template_content, shared_dir, conda_environment)
             
             # Write to destination
             with open(dest_path, 'w') as f:
@@ -259,7 +261,11 @@ def main():
     
     logger.info(f"Cas9 simulations per GT: {cas9_simulations_per_gt}")
     logger.info(f"Expected total jobs: 1 + {cas9_jobs} + {reconstruction_jobs} = {total_jobs}")
-    
+
+    # Extract conda environment from config
+    conda_environment = config_obj.config['execution'].get('conda_environment', 'cas11')
+    logger.info(f"Using conda environment: {conda_environment}")
+
     # Use config's shared_dir if command line argument not provided
     config_shared_dir = config_obj.config.get('output', {}).get('shared_dir')
     if args.shared_dir:
@@ -277,7 +283,7 @@ def main():
         setup_shared_directory(shared_dir)
         
         # Step 2: Copy worker scripts
-        copy_worker_scripts(shared_dir, source_dir)
+        copy_worker_scripts(shared_dir, source_dir, conda_environment)
         
         if args.setup_only:
             logger.info("Setup complete. Use --submit to launch the job cascade.")

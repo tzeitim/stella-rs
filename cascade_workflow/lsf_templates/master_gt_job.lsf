@@ -22,7 +22,7 @@ export POLARS_MAX_THREADS=$LSB_MAX_NUM_PROCESSORS
 # Activate conda environment
 eval "$(/home/projects/nyosef/pedro/miniforge3/bin/conda shell.bash hook)"
 source ~/miniforge3/etc/profile.d/mamba.sh
-conda activate cass
+conda activate {CONDA_ENVIRONMENT}
 
 # Change to shared directory
 cd {SHARED_DIR}
