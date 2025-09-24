@@ -13,6 +13,7 @@ import os
 import pickle
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Dict, Any
 import numpy as np
@@ -100,8 +101,9 @@ def generate_state_priors(k, m, exp):
 
 def generate_ground_truth_tree(config: Dict[str, Any]):
     """Generate a ground truth tree using Cassiopeia simulation"""
-    logger.info("Simulating ground truth tree with birth-death model...")
-    
+    logger.info("Starting GT tree generation...")
+    total_start = time.time()
+
     # Get tree configuration from config file
     gt_config = config.get('ground_truth', {}).get('tree_config', {})
     
@@ -127,22 +129,32 @@ def generate_ground_truth_tree(config: Dict[str, Any]):
     logger.info(f"Fitness config - base: {tree_config['fitness']['fitness_base']}, birth_scale: {tree_config['fitness']['initial_birth_scale']}")
     
     # Simulate the original tree topology
+    logger.info(f"  Starting topology simulation (N={int(tree_config['N'])})...")
+    topo_start = time.time()
     topology_simulator = BirthDeathFitnessSimulator(
-        **tree_config['fitness'], 
+        **tree_config['fitness'],
         num_extant=int(tree_config['N'])
     )
     original_topology = topology_simulator.simulate_tree()
+    topo_time = time.time() - topo_start
+    logger.info(f"  Topology simulation completed in {topo_time:.1f} seconds")
     
     # Subsample the tree topology to get the GT tree
+    logger.info(f"  Starting subsampling ({int(tree_config['N'])} -> {int(tree_config['n'])})...")
+    sample_start = time.time()
     leaf_subsampler = UniformLeafSubsampler(number_of_leaves=int(tree_config['n']))
     gt_tree = leaf_subsampler.subsample_leaves(original_topology)
     gt_tree.scale_to_unit_length()
+    sample_time = time.time() - sample_start
+    logger.info(f"  Subsampling completed in {sample_time:.1f} seconds")
     
     # Generate lineage tracing data sequences for the GT tree
+    logger.info(f"  Starting lineage tracing overlay (k={tree_config['k']}, m={tree_config['m']})...")
+    lt_start = time.time()
     lam = -np.log(1.0 - tree_config["rho"])
     k, m, exp = tree_config['k'], tree_config['m'], tree_config['state_priors_exponents']
     priors = generate_state_priors(k, m, exp)
-    
+
     lt_simulator = Cas9LineageTracingDataSimulator(
         number_of_cassettes=k,
         size_of_cassette=1,
@@ -151,6 +163,8 @@ def generate_ground_truth_tree(config: Dict[str, Any]):
         state_priors=priors
     )
     lt_simulator.overlay_data(gt_tree)
+    lt_time = time.time() - lt_start
+    logger.info(f"  Lineage tracing overlay completed in {lt_time:.1f} seconds")
     
     # Update tree parameters
     gt_tree.priors = {i: priors for i in range(k)}
@@ -171,7 +185,8 @@ def generate_ground_truth_tree(config: Dict[str, Any]):
     gt_tree.parameters["q_gt"] = q_gt
     gt_tree.parameters["proportion_mutated_gt"] = proportion_mutated_gt
 
-    logger.info(f"Generated GT tree with {len(gt_tree.leaves)} leaves")
+    total_time = time.time() - total_start
+    logger.info(f"Generated GT tree with {len(gt_tree.leaves)} leaves in {total_time:.1f} seconds")
     logger.info(f"GT parameters: lam={lam_gt:.4f}, q={q_gt:.4f}, prop_mutated={proportion_mutated_gt:.4f}")
     return gt_tree
 
@@ -205,8 +220,9 @@ class MasterGTWorker:
         gt_tree_paths = []
         
         for instance_id in range(num_instances):
+            instance_start = time.time()
             logger.info(f"Generating GT instance {instance_id + 1}/{num_instances}...")
-            
+
             try:
                 gt_tree = generate_ground_truth_tree(self.config)
                 
@@ -222,9 +238,11 @@ class MasterGTWorker:
                 with open(gt_tree_path, 'wb') as f:
                     pickle.dump(gt_tree, f)
                     
+                instance_time = time.time() - instance_start
                 logger.info(f"GT tree instance {instance_id} saved to: {gt_tree_path}")
+                logger.info(f"GT instance {instance_id + 1} completed in {instance_time:.1f} seconds")
                 gt_tree_paths.append(gt_tree_path)
-                
+
             except Exception as e:
                 logger.error(f"Failed to generate GT instance {instance_id}: {e}")
                 raise
@@ -364,16 +382,24 @@ class MasterGTWorker:
     def run(self) -> None:
         """Execute the master GT workflow."""
         logger.info("=== Master GT Worker Starting ===")
-        
+        start_time = time.time()
+
         try:
             # Step 1: Generate GT trees (multiple instances)
+            gt_start = time.time()
             gt_tree_paths = self.generate_gt_trees()
-            
+            gt_time = time.time() - gt_start
+            logger.info(f"GT generation phase completed in {gt_time:.1f} seconds")
+
             # Step 2: Submit Cas9 recording jobs for all instances
+            submit_start = time.time()
             self.submit_cas9_jobs(gt_tree_paths)
-            
-            logger.info("=== Master GT Worker Completed Successfully ===")
-            
+            submit_time = time.time() - submit_start
+            logger.info(f"Job submission phase completed in {submit_time:.1f} seconds")
+
+            total_time = time.time() - start_time
+            logger.info(f"=== Master GT Worker Completed Successfully in {total_time:.1f} seconds ===")
+
         except Exception as e:
             logger.error(f"Master GT Worker failed: {e}")
             sys.exit(1)

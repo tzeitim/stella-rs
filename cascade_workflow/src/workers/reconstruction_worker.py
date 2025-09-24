@@ -73,22 +73,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# CAS9 Tier Configuration
-class Cas9SimulationTier:
-    def __init__(self, name: str, recording_sites: int, states_per_site: int, 
-                 mutation_rate: float, description: str = ""):
-        self.name = name
-        self.recording_sites = recording_sites
-        self.states_per_site = states_per_site
-        self.mutation_rate = mutation_rate
-        self.description = description
 
-CAS9_TIERS = {
-    1: Cas9SimulationTier("Ultra High Fidelity", 5000, 50, 0.5),
-    2: Cas9SimulationTier("High Fidelity", 1000, 30, 0.4),
-    3: Cas9SimulationTier("Medium Fidelity", 200, 20, 0.3),
-    4: Cas9SimulationTier("Low Fidelity", 15, 10, 0.2)
-}
 
 # Solver definitions
 # SOLVERS now imported from solver_config.py
@@ -114,13 +99,16 @@ def get_class_of_solver(solver_name):
     else:
         raise ValueError(f"Unknown solver: {solver_name}")
 
-def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int, 
-                                     gt_instance_id: int = 0, cas9_simulation_id: int = 0, 
-                                     reconstruction_id: int = 0):
+def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int,
+                                     tier_config=None, gt_instance_id: int = 0, cas9_simulation_id: int = 0,
+                                     reconstruction_id: int = 0, config: dict = None):
     """Reconstruct tree with specified solver and calculate comprehensive metrics"""
     logger.info(f"Starting reconstruction with {solver_name} solver for tier {tier_num} "
                f"(GT:{gt_instance_id}, Sim:{cas9_simulation_id}, Recon:{reconstruction_id})")
-    
+
+    # Get tier name from config object
+    tier_name = tier_config.name if tier_config else f'Tier {tier_num}'
+
     start_time = time.time()
     
     try:
@@ -220,11 +208,17 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
             'cas9_simulation_id': cas9_simulation_id,
             'reconstruction_num': reconstruction_id,
             'cas9_tier': tier_num,
-            'cas9_tier_name': f'Tier {tier_num}',  # Simplified for now
-            'recording_sites': 100,  # Default fallback
-            'states_per_site': 10,   # Default fallback
+            'cas9_tier_name': tier_name,
+            'recording_sites': tier_config.total_sites if tier_config else 100,  # From tier config
+            'states_per_site': tier_config.m if tier_config else 10,   # From tier config
             'solver': solver_name,
             'computation_time_seconds': computation_time,
+
+            # Experiment identification for merging datasets
+            'run_name': config.get('execution', {}).get('run_name', 'unknown') if config else 'unknown',
+            'experiment_id': f"{config.get('execution', {}).get('run_name', 'unknown')}" if config else 'unknown',
+            'gt_tree_size': config.get('ground_truth', {}).get('tree_config', {}).get('N', 0) if config else 0,
+            'sampled_tree_size': config.get('ground_truth', {}).get('tree_config', {}).get('n', 0) if config else 0,
 
             # PHS parameters from simulation (used for computation)
             'lam_simulation': lam_from_simulation,
@@ -244,11 +238,11 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         
         try:
             # Triplets correctness - use all available cores
-            max_threads = os.environ.get('LSB_MAX_NUM_PROCESSORS', '20')
+            max_threads = os.environ.get('LSB_MAX_NUM_PROCESSORS', '16')
             triplets_result = stellars.triplets_correct_parallel(
                 cas9_tree.get_newick(record_branch_lengths=True, record_node_names=True),
                 optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True),
-                number_of_trials=1000,
+                number_of_trials=1000,  # TODO: Make configurable
                 min_triplets_at_depth=1,
                 seed=42,
                 max_threads=int(max_threads)
@@ -283,7 +277,7 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         
         try:
             # cPHS calculation using CORRECTED approach from simulation_phs.py (lines 336-381)
-            max_threads = os.environ.get('LSB_MAX_NUM_PROCESSORS', '20')
+            max_threads = os.environ.get('LSB_MAX_NUM_PROCESSORS', '16')
             tree_newick = optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True)
 
             # CRITICAL FIX: Extract leaf names for proper character matrix mapping (simulation_phs.py line 340)
@@ -473,18 +467,28 @@ class ReconstructionWorker:
         # Validate inputs
         if solver not in SOLVERS:
             raise ValueError(f"Invalid solver: {solver}. Must be one of {SOLVERS}")
-        # Load config to validate tier against available tiers
+        # Load config to validate tier and get tier configuration
         config_path = Path(shared_dir) / "cascade_config.yaml"
-        config = {}
+        self.config = {}
+        self.tier_config = None
+
         if config_path.exists():
             try:
-                import yaml
-                with open(config_path, 'r') as f:
-                    config = yaml.safe_load(f)
+                from config_loader import load_config
+                config_obj = load_config(str(config_path))
+                self.config = config_obj.config
+                self.tier_config = config_obj.cas9_tiers.get(tier)
             except Exception as e:
                 logger.warning(f"Could not load config {config_path}: {e}")
+                # Fallback to raw YAML
+                try:
+                    import yaml
+                    with open(config_path, 'r') as f:
+                        self.config = yaml.safe_load(f)
+                except Exception as e2:
+                    logger.warning(f"Could not load raw config either: {e2}")
 
-        config_tiers = list(config.get('cas9_tiers', {}).keys())
+        config_tiers = list(self.config.get('cas9_tiers', {}).keys())
         if config_tiers and tier not in config_tiers:
             raise ValueError(f"Invalid tier: {tier}. Must be one of {config_tiers}")
             
@@ -537,10 +541,10 @@ class ReconstructionWorker:
                 def __init__(self, tier_num, **kwargs):
                     self.tier_num = tier_num
                     self.name = kwargs.get('name', f'Tier {tier_num}')
-                    self.k = kwargs.get('k', 10)
-                    self.cassette_size = kwargs.get('cassette_size', 3)
+                    self.k = kwargs.get('k', 5)  # TODO: Remove fallback TierConfig - should use proper config
+                    self.cassette_size = kwargs.get('cassette_size', 10)
                     self.recording_sites = self.k * self.cassette_size
-                    self.states_per_site = kwargs.get('m', 10)
+                    self.states_per_site = kwargs.get('m', 20)
 
             tier_config = TierConfig(self.tier, **tier_config_dict)
             
@@ -549,9 +553,11 @@ class ReconstructionWorker:
                 cas9_tree=cas9_tree,
                 solver_name=self.solver,
                 tier_num=self.tier,
+                tier_config=self.tier_config,
                 gt_instance_id=self.gt_instance_id,
                 cas9_simulation_id=self.cas9_simulation_id,
-                reconstruction_id=self.reconstruction_id
+                reconstruction_id=self.reconstruction_id,
+                config=self.config
             )
             
             # Add timing information
