@@ -126,19 +126,44 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         tree_newick = reconstructed_tree.get_newick(record_branch_lengths=True, record_node_names=True)
         leaf_sequences = {leaf: reconstructed_tree.get_character_states(leaf) for leaf in reconstructed_tree.leaves}
         
-        # Estimate minimum branch length
-        min_branch_len = 1e-8
-        try:
-            branch_lengths = []
-            for parent in reconstructed_tree.nodes:
-                for child in reconstructed_tree.children(parent):
-                    bl = reconstructed_tree.get_branch_length(parent, child)
-                    if bl is not None and bl > 0:
-                        branch_lengths.append(bl)
-            if branch_lengths:
-                min_branch_len = max(min(branch_lengths) * 0.001, 1e-10)
-        except:
-            pass
+        # Try to use optimal min_branch_length from GT analysis first
+        min_branch_len = None
+        if hasattr(cas9_tree, 'parameters') and 'optimal_min_branch_length' in cas9_tree.parameters:
+            min_branch_len = float(cas9_tree.parameters['optimal_min_branch_length'])
+            logger.info(f"Using dynamic min_branch_length from GT analysis: {min_branch_len:.2e}")
+
+        # Fall back to computing from reconstructed tree if GT analysis not available
+        if min_branch_len is None:
+            logger.info("GT branch length analysis not available, computing from reconstructed tree...")
+            default_min_branch_len = float(config.get('analysis', {}).get('min_branch_length', 1e-8))
+            branch_len_fraction = float(config.get('analysis', {}).get('branch_length_fraction', 0.01))  # 1% instead of 0.1%
+
+            min_branch_len = default_min_branch_len
+            try:
+                branch_lengths = []
+                for parent in reconstructed_tree.nodes:
+                    for child in reconstructed_tree.children(parent):
+                        bl = reconstructed_tree.get_branch_length(parent, child)
+                        if bl is not None:
+                            # Convert to float to handle potential string values
+                            try:
+                                bl_float = float(bl)
+                                if bl_float > 0:
+                                    branch_lengths.append(bl_float)
+                            except (ValueError, TypeError):
+                                continue  # Skip invalid branch lengths
+
+                if branch_lengths:
+                    # Use configurable fraction to avoid ConvexML numerical issues
+                    min_branch_len = min(branch_lengths) * branch_len_fraction
+                    # Ensure it's not too small either (configurable floor)
+                    min_floor = float(config.get('analysis', {}).get('min_branch_length_floor', 1e-10))
+                    min_branch_len = max(min_branch_len, min_floor)
+                    logger.debug(f"Computed min_branch_len: {min_branch_len:.2e} from {len(branch_lengths)} branches")
+            except Exception as e:
+                logger.warning(f"Could not compute branch lengths, using default {min_branch_len:.2e}: {e}")
+
+        logger.info(f"Using min_branch_length for ConvexML optimization: {min_branch_len:.2e}")
         
         # Apply ConvexML branch length optimization
         try:
@@ -164,6 +189,34 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         # Copy priors and parameters
         if hasattr(reconstructed_tree, 'priors'):
             optimized_tree.priors = reconstructed_tree.priors
+
+        # CRITICAL FIX: Copy all required parameters from CAS9 tree to optimized tree
+        # This ensures no parameter loss during reconstruction
+        if hasattr(cas9_tree, 'parameters'):
+            logger.debug(f"Copying parameters from CAS9 tree: {list(cas9_tree.parameters.keys())}")
+
+            # Copy essential parameters for likelihood calculation
+            required_params = [
+                'heritable_missing_rate', 'stochastic_missing_rate', 'stochastic_missing_probability',
+                'mutation_rate', 'mutation_rates', 'state_priors', 'lam_gt', 'q_gt',
+                'proportion_mutated_gt', 'cas9_simulation_parameters'
+            ]
+
+            copied_params = []
+            for param_name in required_params:
+                if param_name in cas9_tree.parameters:
+                    optimized_tree.parameters[param_name] = cas9_tree.parameters[param_name]
+                    copied_params.append(param_name)
+
+            # Copy any additional parameters that might be important
+            for param_name, param_value in cas9_tree.parameters.items():
+                if param_name not in optimized_tree.parameters:
+                    optimized_tree.parameters[param_name] = param_value
+                    copied_params.append(param_name)
+
+            logger.debug(f"Copied {len(copied_params)} parameters: {copied_params}")
+        else:
+            logger.warning("CAS9 tree has no parameters to copy!")
         
         # Reconstruct ancestral characters and scale
         optimized_tree.reconstruct_ancestral_characters()
@@ -239,12 +292,22 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         try:
             # Triplets correctness - use all available cores
             max_threads = os.environ.get('LSB_MAX_NUM_PROCESSORS', '16')
+
+            # Get configuration parameters
+            triplets_trials = config.get('analysis', {}).get('triplets_trials', 1000)
+
+            # Generate seed that respects user config but is deterministic per reconstruction
+            base_seed = config.get('analysis', {}).get('reconstruction_seed',
+                                  config.get('execution', {}).get('random_seed', 42))
+            # Combine with instance IDs for unique but reproducible seeds
+            triplets_seed = (base_seed + hash((gt_instance_id, cas9_simulation_id, reconstruction_id, solver_name))) % (2**31)
+
             triplets_result = stellars.triplets_correct_parallel(
                 cas9_tree.get_newick(record_branch_lengths=True, record_node_names=True),
                 optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True),
-                number_of_trials=1000,  # TODO: Make configurable
+                number_of_trials=triplets_trials,
                 min_triplets_at_depth=1,
-                seed=42,
+                seed=triplets_seed,
                 max_threads=int(max_threads)
             )
             metrics['triplets_distance'] = 1.0 - triplets_result['all_triplets_correct'][0]
@@ -351,33 +414,40 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
             tree_newick = optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True)
             character_matrix = optimized_tree.character_matrix.to_numpy()
 
-            # Calculate likelihood with simulation parameters
-            likelihood_result_sim = stellars.likelihood_score(
-                tree_newick=tree_newick,
-                character_matrix=character_matrix,
-                mutation_rate=lam_from_simulation,
-                collision_probability=q_from_simulation,
-                missing_state=-1,
-                unedited_state=0
-            )
-            metrics['likelihood_score_simulation'] = likelihood_result_sim
+            # Calculate likelihood using Cassiopeia's robust implementation
+            # Note: Switched from stellars.likelihood_score() to cass.tools.tree_metrics.calculate_likelihood_continuous()
+            # to avoid numerical instability issues (-150K to -160K artificial values from Rust implementation)
 
-            # Calculate likelihood with ground truth parameters if available
-            if lam_from_gt is not None and q_from_gt is not None:
-                likelihood_result_gt = stellars.likelihood_score(
-                    tree_newick=tree_newick,
-                    character_matrix=character_matrix,
-                    mutation_rate=lam_from_gt,
-                    collision_probability=q_from_gt,
-                    missing_state=-1,
-                    unedited_state=0
-                )
-                metrics['likelihood_score_gt'] = likelihood_result_gt
-            else:
-                metrics['likelihood_score_gt'] = np.nan
+            # Parameter validation before likelihood calculation
+            missing_params = []
+            required_params = ['heritable_missing_rate', 'stochastic_missing_rate', 'stochastic_missing_probability']
+            has_required_param = False
 
-            # Keep legacy likelihood_score field for backward compatibility (using simulation parameters)
-            metrics['likelihood_score'] = likelihood_result_sim
+            for param in required_params:
+                if param in optimized_tree.parameters:
+                    has_required_param = True
+                    break
+
+            if not has_required_param:
+                missing_params.extend(required_params)
+
+            if missing_params:
+                logger.warning(f"Missing required parameters for likelihood calculation: {missing_params}")
+                logger.warning(f"Available parameters: {list(optimized_tree.parameters.keys())}")
+                raise ValueError(f"Tree missing required parameters: {missing_params}")
+
+            with np.errstate(divide='ignore'):
+                likelihood_value = cass.tools.tree_metrics.calculate_likelihood_continuous(optimized_tree)
+
+            # Validate likelihood result
+            if np.isnan(likelihood_value) or np.isinf(likelihood_value):
+                logger.warning(f"Invalid likelihood value: {likelihood_value}")
+                raise ValueError(f"Likelihood calculation returned invalid value: {likelihood_value}")
+
+            likelihood_result = {'log_likelihood': -likelihood_value}
+            metrics['likelihood_score_simulation'] = likelihood_result
+            metrics['likelihood_score_gt'] = likelihood_result
+            metrics['likelihood_score'] = likelihood_result
 
         except Exception as e:
             logger.warning(f"Likelihood calculation failed: {e}")
@@ -537,10 +607,19 @@ class ReconstructionWorker:
                 def __init__(self, tier_num, **kwargs):
                     self.tier_num = tier_num
                     self.name = kwargs.get('name', f'Tier {tier_num}')
-                    self.k = kwargs.get('k', 5)  # TODO: Remove fallback TierConfig - should use proper config
-                    self.cassette_size = kwargs.get('cassette_size', 10)
+
+                    # Require proper config, no fallbacks for critical parameters
+                    if 'k' not in kwargs:
+                        raise ValueError(f"Missing required 'k' parameter for tier {tier_num}")
+                    if 'cassette_size' not in kwargs:
+                        raise ValueError(f"Missing required 'cassette_size' parameter for tier {tier_num}")
+                    if 'm' not in kwargs:
+                        raise ValueError(f"Missing required 'm' parameter for tier {tier_num}")
+
+                    self.k = kwargs['k']
+                    self.cassette_size = kwargs['cassette_size']
                     self.recording_sites = self.k * self.cassette_size
-                    self.states_per_site = kwargs.get('m', 20)
+                    self.states_per_site = kwargs['m']
 
             tier_config = TierConfig(self.tier, **tier_config_dict)
             

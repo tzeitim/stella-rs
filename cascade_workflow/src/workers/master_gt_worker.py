@@ -99,6 +99,63 @@ def generate_state_priors(k, m, exp):
     # Fix: states should be 1, 2, 3, ..., m (not 0, 1, 2, ..., m-1)
     return {i+1: state_priors[i] for i in range(m)}
 
+def analyze_branch_lengths(tree):
+    """Analyze branch lengths in a tree and return statistics.
+
+    Args:
+        tree: Cassiopeia tree object
+
+    Returns:
+        dict: Statistics about branch lengths (min, max, mean, median, count)
+        None: If no valid branch lengths found
+    """
+    branch_lengths = []
+
+    try:
+        # Use the correct Cassiopeia API pattern from production code
+        for parent in tree.nodes:
+            for child in tree.children(parent):
+                parent_time = tree.get_time(parent)
+                child_time = tree.get_time(child)
+                if parent_time is not None and child_time is not None:
+                    branch_length = abs(child_time - parent_time)
+                    if branch_length > 0:  # Only positive branch lengths
+                        branch_lengths.append(branch_length)
+    except Exception as e:
+        logger.warning(f"Could not analyze branch lengths: {e}")
+        return None
+
+    if not branch_lengths:
+        return None
+
+    return {
+        'min': min(branch_lengths),
+        'max': max(branch_lengths),
+        'mean': np.mean(branch_lengths),
+        'median': np.median(branch_lengths),
+        'count': len(branch_lengths)
+    }
+
+def calculate_optimal_min_branch_length(branch_stats, safety_factor=0.01, min_floor=1e-12):
+    """Calculate optimal min_branch_length from GT branch statistics.
+
+    Args:
+        branch_stats: Dictionary with branch length statistics from analyze_branch_lengths
+        safety_factor: Fraction of minimum branch length to use (default 1%)
+        min_floor: Absolute minimum value for numerical stability
+
+    Returns:
+        float: Optimal minimum branch length value
+    """
+    if branch_stats and branch_stats['min'] > 0:
+        # Use a small fraction of the smallest branch length
+        optimal_min = branch_stats['min'] * safety_factor
+        # Ensure it's not too small (numerical stability)
+        return max(optimal_min, min_floor)
+
+    # Fallback to conservative default
+    return 1e-8
+
 def generate_ground_truth_tree(config: Dict[str, Any]):
     """Generate a ground truth tree using Cassiopeia simulation"""
     logger.info("Starting GT tree generation...")
@@ -184,6 +241,29 @@ def generate_ground_truth_tree(config: Dict[str, Any]):
     gt_tree.parameters["lam_gt"] = lam_gt
     gt_tree.parameters["q_gt"] = q_gt
     gt_tree.parameters["proportion_mutated_gt"] = proportion_mutated_gt
+
+    # Analyze branch lengths and calculate optimal min_branch_length
+    logger.info("  Analyzing branch lengths for optimization...")
+    branch_analysis_start = time.time()
+    branch_stats = analyze_branch_lengths(gt_tree)
+
+    if branch_stats:
+        optimal_min_branch_length = calculate_optimal_min_branch_length(branch_stats)
+
+        # Store branch length analysis for downstream workers
+        gt_tree.parameters["branch_length_stats"] = branch_stats
+        gt_tree.parameters["optimal_min_branch_length"] = optimal_min_branch_length
+
+        branch_analysis_time = time.time() - branch_analysis_start
+        logger.info(f"  Branch length analysis completed in {branch_analysis_time:.3f} seconds")
+        logger.info(f"  Branch lengths - min: {branch_stats['min']:.6f}, max: {branch_stats['max']:.3f}, "
+                   f"mean: {branch_stats['mean']:.4f}, median: {branch_stats['median']:.4f}")
+        logger.info(f"  Calculated optimal min_branch_length: {optimal_min_branch_length:.2e} "
+                   f"(1% of observed minimum: {branch_stats['min']:.6f})")
+    else:
+        logger.warning("  Could not analyze branch lengths, using default parameters")
+        # Store fallback values
+        gt_tree.parameters["optimal_min_branch_length"] = 1e-8
 
     total_time = time.time() - total_start
     logger.info(f"Generated GT tree with {len(gt_tree.leaves)} leaves in {total_time:.1f} seconds")

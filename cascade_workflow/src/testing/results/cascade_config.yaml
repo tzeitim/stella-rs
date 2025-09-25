@@ -1,0 +1,105 @@
+# Mini-scale test configuration for fast metrics testing
+# Designed for rapid iteration and validation of pipeline fixes
+
+# Execution control
+execution:
+  random_seed: 12345  # Deterministic for testing
+  num_gt_instances: 2  # Small number for fast testing
+  parallel_execution: false  # Local execution, no LSF
+  run_name: "mini_test_run"
+
+# Ground truth generation parameters - TINY TREES
+ground_truth:
+  tree_config:
+    N: 1000   # Very small original tree (vs 1000+ production)
+    n: 1000   # Very small sampled tree (vs 150+ production)
+    fitness:
+      initial_birth_scale: 2
+      fitness_base: 1.1
+      fitness_std: 0.25
+
+  # Fixed seeds for reproducible testing
+  instance_seeds: [1001, 1002]  # Exactly 2 instances
+
+# CAS9 simulation tiers - ONLY 2 TIERS for speed
+cas9_tiers:
+  2:
+    name: "Test Tier 2 - Medium Fidelity"
+    description: "Test recording: 5 integrations × 4 sites"
+    k: 5  # Small number of cassettes
+    cassette_size: 4  # Small cassette size
+    m: 10  # States per site
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 1.2
+    state_priors_exponent: 1e-4
+    heritable_silencing_rate: 0.0001  # Reduced from 0.001
+    stochastic_silencing_rate: 0.001  # Reduced from 0.01
+
+  4:
+    name: "Test Tier 4 - Low Fidelity"
+    description: "Test recording: 3 integrations × 2 sites"
+    k: 3  # Even smaller
+    cassette_size: 2  # Even smaller
+    m: 8   # Fewer states
+    mutation_rate_pattern: "uniform"
+    base_mutation_rate: 1.0
+    state_priors_exponent: 1e-4
+    heritable_silencing_rate: 0.0005  # Reduced from 0.005
+    stochastic_silencing_rate: 0.002  # Reduced from 0.02
+
+# Solver configuration - ONLY 3 SOLVERS for speed
+solvers:
+  enabled:
+    - "nj"
+    - "greedy"
+    - "spectral"
+
+  disabled:
+    - "maxcut"  # Skip slower solvers for testing
+    - "smj"
+    - "dmj"
+    - "vanilla"
+    - "ilp"
+
+  # Just 1 reconstruction per solver for testing
+  reconstructions_per_solver: 1
+
+  solver_params:
+    nj:
+      add_root: true
+    maxcut:
+      time_limit: 60  # Short timeout for testing
+    greedy:
+      max_iterations: 500  # Fewer iterations for testing
+
+# Analysis parameters - TEST OUR FIXES
+analysis:
+  # Seed control for reproducible but varied reconstructions
+  reconstruction_seed: 9999  # Test-specific seed
+
+  # Triplets analysis configuration
+  triplets_trials: 100  # Fewer trials for speed (vs 1000 production)
+
+  # Branch length optimization parameters
+  min_branch_length: 1e-8
+  branch_length_fraction: 0.01
+  min_branch_length_floor: 1e-10
+
+# Simulation parameters
+cas9_simulations_per_gt: 2  # Just 2 simulations per GT (vs 10 production)
+
+# Debug settings
+debug:
+  save_debug_info: true
+  test_mode: true  # Flag to indicate this is test mode
+  verbose_logging: true
+
+# Output settings for testing
+output:
+  result_prefix: "mini_test"
+  save_detailed_metrics: true
+  save_intermediate_trees: false  # Skip to save space
+  generate_plots: false  # Skip plotting for speed
+
+# TOTAL TESTS: 2 GT instances × 2 simulations × 2 tiers × 3 solvers = 24 reconstructions
+# EXPECTED RUNTIME: 1-2 minutes (vs hours for full pipeline)

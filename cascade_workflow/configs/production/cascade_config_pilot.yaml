@@ -90,6 +90,19 @@ solvers:
     greedy:
       max_iterations: 2000  # Increased from 1000
 
+# Analysis parameters (configurable to avoid hardcoded values)
+analysis:
+  # Seed control for reproducible but varied reconstructions
+  reconstruction_seed: 123  # Base seed for pilot experiments
+
+  # Triplets analysis configuration
+  triplets_trials: 1000  # Number of triplet trials for correctness calculation
+
+  # Branch length optimization parameters
+  min_branch_length: 1e-8  # Default minimum branch length for ConvexML
+  branch_length_fraction: 0.01  # Fraction of minimum existing branch length to use
+  min_branch_length_floor: 1e-10  # Absolute floor for branch lengths (numerical stability)
+
 # LSF job parameters - INCREASED FOR LARGER TREES
 lsf:
   queues:

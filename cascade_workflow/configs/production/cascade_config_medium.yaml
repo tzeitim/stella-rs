@@ -142,12 +142,25 @@ solvers:
     greedy:
       max_iterations: 3000
 
+# Analysis parameters (configurable to avoid hardcoded values)
+analysis:
+  # Seed control for reproducible but varied reconstructions
+  reconstruction_seed: 1337  # Base seed for medium-scale experiments
+
+  # Triplets analysis configuration
+  triplets_trials: 1000  # Number of triplet trials for correctness calculation
+
+  # Branch length optimization parameters
+  min_branch_length: 1e-8  # Default minimum branch length for ConvexML
+  branch_length_fraction: 0.01  # Fraction of minimum existing branch length to use
+  min_branch_length_floor: 1e-10  # Absolute floor for branch lengths (numerical stability)
+
 # LSF job parameters - FURTHER INCREASED FOR LARGER TREES
 lsf:
   queues:
-    master_gt: "medium"
-    cas9_recording: "medium"
-    reconstruction: "long"  # Long queue for big reconstructions
+    master_gt: "short"
+    cas9_recording: "short"
+    reconstruction: "short"  # Long queue for big reconstructions
 
   # Job throttling - control concurrent job submission
   throttling:
@@ -161,17 +174,14 @@ lsf:
     master_gt:
       cores: 25  # More cores for bigger trees
       memory_gb: 1.5  # More memory
-      time_limit: "4:00"  # 4 hours
       
     cas9_recording:
       cores: 35
       memory_gb: 1.5
-      time_limit: "2:00"  # 2 hours
       
     reconstruction:
       cores: 65
       memory_gb: 1.5
-      # time_limit removed - let queue handle time limits
       
   # log_dir is now derived from shared_dir/logs - no hardcoded paths
 
