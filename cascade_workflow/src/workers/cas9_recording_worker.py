@@ -136,7 +136,7 @@ def apply_cas9_recording_to_tree(gt_tree, tier: Cas9SimulationTier, tier_number:
     k = tier.total_sites
     m = tier.m
     #lam = [-np.log(1.0 - i) for i in tier.mutation_rates]
-    print(f"{tier.mutation_rates=}")
+    print(f"first 10 {tier.mutation_rates[1:10]=}")
     print(f"{len(tier.mutation_rates)=}")
     print(f"{tier.cassette_size=}")
 

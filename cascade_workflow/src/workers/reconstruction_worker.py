@@ -400,12 +400,12 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
                 metrics['cPHS_gt'] = np.nan
 
             # Debug logging
-            logger.info(f"CORRECTED cPHS: {metrics['cPHS']:.2e}, "
-                       f"Ground Truth: {metrics.get('cPHS_gt', 'N/A')}")
+            logger.info(f"cPHS (sim params): {metrics['cPHS']:.2e}, "
+                       f"cPHS (GT params): {metrics.get('cPHS_gt', 'N/A')}")
 
 
         except Exception as e:
-            logger.warning(f"CORRECTED cPHS calculation failed: {e}")
+            logger.warning(f"cPHS calculation failed: {e}")
             metrics['cPHS'] = np.nan
             metrics['cPHS_gt'] = np.nan
         

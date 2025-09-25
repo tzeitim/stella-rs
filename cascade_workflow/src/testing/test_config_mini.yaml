@@ -23,6 +23,15 @@ ground_truth:
 
 # CAS9 simulation tiers - ONLY 2 TIERS for speed
 cas9_tiers:
+  1:
+    name: "Tier 1 - Ultra High Fidelity"
+    description: "Near-perfect recording: 100 integrations × 50 sites"
+    k: 100  # number of cassettes (integrations)
+    cassette_size: 50  # sites per cassette
+    m: 50  # unique mutations per site
+    mutation_rate_pattern: "exponential_decay"
+    base_mutation_rate: 2.0
+    state_priors_exponent: 1e-6
   2:
     name: "Test Tier 2 - Medium Fidelity"
     description: "Test recording: 5 integrations × 4 sites"
