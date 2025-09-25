@@ -246,8 +246,8 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         proportion_mutated_gt = None
 
         if hasattr(cas9_tree, 'parameters'):
-            lam_from_gt = cas9_tree.parameters.get("lam_gt")
-            q_from_gt = cas9_tree.parameters.get("q_gt")
+            lam_from_gt = cas9_tree.parameters.get("lam_true")  # Use TRUE parameter
+            q_from_gt = cas9_tree.parameters.get("q_true")     # Use TRUE parameter
             proportion_mutated_gt = cas9_tree.parameters.get("proportion_mutated_gt")
 
         # Use simulation values for actual computation (maintaining current behavior)
@@ -328,15 +328,17 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         
         try:
             # Parsimony score using stellars (Rust-based, faster)
-            metrics['parsimony_score'] = stellars.parsimony_score(
+            parsimony_result = stellars.parsimony_score(
                 tree_newick=optimized_tree.get_newick(record_branch_lengths=True, record_node_names=True),
                 character_matrix=optimized_tree.character_matrix.to_numpy(),
                 missing_state=-1,
                 unedited_state=0
             )
+            # Store the full result for proper flattening later
+            metrics['parsimony_score'] = parsimony_result
         except Exception as e:
             logger.warning(f"Parsimony calculation failed: {e}")
-            metrics['parsimony_score'] = np.nan
+            metrics['parsimony_score'] = {'parsimony_score': np.nan}
         
         try:
             # cPHS calculation using CORRECTED approach from simulation_phs.py (lines 336-381)
@@ -461,8 +463,27 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         logger.info(f"Key metrics - RF: {metrics.get('RF_distance', 'N/A')}, "
                    f"Triplets: {triplets_str}, "
                    f"cPHS: {metrics.get('cPHS', 'N/A')}")
-        
-        return metrics
+
+        # Flatten nested dictionaries for clean output
+        flattened_metrics = {}
+        for key, value in metrics.items():
+            if key == 'parsimony_score' and isinstance(value, dict):
+                flattened_metrics['parsimony_score'] = value.get('parsimony_score', np.nan)
+                flattened_metrics['parsimony_total_mutations'] = value.get('total_mutations', None)
+                flattened_metrics['parsimony_computation_time_ms'] = value.get('computation_time_ms', None)
+                flattened_metrics['parsimony_method_used'] = value.get('method_used', None)
+                flattened_metrics['parsimony_internal_states_inferred'] = value.get('internal_states_inferred', None)
+            elif key == 'likelihood_score' and isinstance(value, dict):
+                flattened_metrics['likelihood_score'] = value.get('log_likelihood', np.nan)
+                flattened_metrics['likelihood_computation_time_ms'] = value.get('computation_time_ms', None)
+            elif key == 'likelihood_score_simulation' and isinstance(value, dict):
+                flattened_metrics['likelihood_score_simulation'] = value.get('log_likelihood', np.nan)
+            elif key == 'likelihood_score_gt' and isinstance(value, dict):
+                flattened_metrics['likelihood_score_gt'] = value.get('log_likelihood', np.nan)
+            else:
+                flattened_metrics[key] = value
+
+        return flattened_metrics
         
     except Exception as e:
         logger.error(f"Reconstruction failed: {e}")
@@ -724,9 +745,10 @@ class ReconstructionWorker:
             pars = result['parsimony_score']
             if isinstance(pars, dict):
                 flattened['parsimony_score'] = pars.get('parsimony_score', pars)
-                flattened['total_mutations'] = pars.get('total_mutations', None)
+                flattened['parsimony_total_mutations'] = pars.get('total_mutations', None)
                 flattened['parsimony_computation_time_ms'] = pars.get('computation_time_ms', None)
-                flattened['parsimony_method'] = pars.get('method_used', None)
+                flattened['parsimony_method_used'] = pars.get('method_used', None)
+                flattened['parsimony_internal_states_inferred'] = pars.get('internal_states_inferred', None)
             else:
                 flattened['parsimony_score'] = pars
         

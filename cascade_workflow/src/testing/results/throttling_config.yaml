@@ -5,6 +5,6 @@ throttling:
   batch_size: 20
   check_interval: 30
 metadata:
-  created_at: '2025-09-25 15:34:31'
+  created_at: '2025-09-25 15:54:16'
   description: Dynamic throttling configuration - edit this file to adjust job limits
     in real-time

@@ -238,9 +238,13 @@ def generate_ground_truth_tree(config: Dict[str, Any]):
     q_gt = np.sum(priors_array ** 2)
 
     # Store these for downstream workers
-    gt_tree.parameters["lam_gt"] = lam_gt
+    gt_tree.parameters["lam_gt"] = lam_gt  # Estimated GT parameter (for comparison)
     gt_tree.parameters["q_gt"] = q_gt
     gt_tree.parameters["proportion_mutated_gt"] = proportion_mutated_gt
+
+    # Store TRUE ground truth parameters from simulation config
+    gt_tree.parameters["lam_true"] = lam  # TRUE parameter from tree_config["rho"]
+    gt_tree.parameters["q_true"] = q_gt   # This is already the true parameter
 
     # Analyze branch lengths and calculate optimal min_branch_length
     logger.info("  Analyzing branch lengths for optimization...")
@@ -267,7 +271,7 @@ def generate_ground_truth_tree(config: Dict[str, Any]):
 
     total_time = time.time() - total_start
     logger.info(f"Generated GT tree with {len(gt_tree.leaves)} leaves in {total_time:.1f} seconds")
-    logger.info(f"GT parameters: lam={lam_gt:.4f}, q={q_gt:.4f}, prop_mutated={proportion_mutated_gt:.4f}")
+    logger.info(f"GT parameters: lam_true={lam:.4f}, lam_estimated={lam_gt:.4f}, q={q_gt:.4f}, prop_mutated={proportion_mutated_gt:.4f}")
     return gt_tree
 
 

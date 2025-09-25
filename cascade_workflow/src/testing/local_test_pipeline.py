@@ -321,11 +321,8 @@ class LocalTestPipeline:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename = self.results_dir / f"test_results_{timestamp}.csv"
 
-        # Convert results to flat format for CSV
-        flattened_results = []
-        for result in results:
-            flat_result = self._flatten_result_dict(result)
-            flattened_results.append(flat_result)
+        # Results are already flattened by reconstruction_worker, just use them directly
+        flattened_results = results
 
         import pandas as pd
         df = pd.DataFrame(flattened_results)
@@ -334,19 +331,6 @@ class LocalTestPipeline:
         logger.info(f"💾 Results saved to: {filename}")
         return str(filename)
 
-    def _flatten_result_dict(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """Flatten nested result dictionary for CSV export."""
-        flat = {}
-        for key, value in result.items():
-            if isinstance(value, dict) and value:  # Only flatten non-empty dictionaries
-                # Flatten nested dictionary
-                for sub_key, sub_value in value.items():
-                    flat[f"{key}_{sub_key}"] = sub_value
-                # Don't include the original nested key to avoid empty columns
-            elif not isinstance(value, dict):  # Only include non-dict values
-                flat[key] = value
-            # Skip empty dictionaries and nested dict keys entirely
-        return flat
 
     def run_full_pipeline(self) -> str:
         """
