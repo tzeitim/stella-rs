@@ -265,7 +265,10 @@ pub fn calculate_parsimony_p_value(
     // Calculate p-value based on conditional parsimony distribution
     // This is a simplified implementation - the paper refers to analytical calculation
     // For now, we use an approximation based on Poisson distribution
-    let lambda = mutation_rate.unwrap_or(0.1);
+    let lambda = mutation_rate.unwrap_or_else(|| {
+        eprintln!("WARNING: Using default mutation_rate=0.1 in parsimony! Pass actual calculated rate!");
+        0.1
+    });
     let n_leaves = tree.get_leaves().count();
     let expected_mutations = lambda * (n_leaves as f64 - 1.0); // Expected mutations in tree
     

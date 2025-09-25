@@ -15,6 +15,28 @@ pub struct LikelihoodResult {
 
 /// Calculate likelihood for a tree under the CRISPR-Cas9 non-modifiable model
 /// Following the likelihood approach mentioned in the PHS paper
+///
+/// TODO: CRITICAL NUMERICAL STABILITY ISSUES IDENTIFIED!
+/// This Rust implementation has several problems causing extremely negative values (-150K to -160K):
+///
+/// 1. PARAMETER MISMATCH: Uses hardcoded defaults (lambda=0.1, q=0.1) instead of calculating from data
+///    - Python calculates: lam = -np.log(1.0 - proportion_mutated) from actual tree data
+///    - Python calculates: q = np.sum(priors ** 2) from actual priors
+///    - GT lambda (0.65) vs default (0.1) causes massive likelihood differences
+///
+/// 2. NUMERICAL INSTABILITY: Returns f64::NEG_INFINITY for invalid transitions (line 334)
+///    - Multiple -∞ values accumulate to artificial -150K to -160K values
+///    - Python uses robust error handling with np.errstate(divide='ignore')
+///    - Need graceful handling instead of strict -∞ returns
+///
+/// 3. MODEL DIFFERENCES: Custom CRISPR-Cas9 model vs Cassiopeia's mature implementation
+///    - Python uses Cassiopeia's calculate_likelihood_continuous() with numerical safeguards
+///    - Rust implementation is too strict about invalid states
+///
+/// SOLUTION: Replace with Cassiopeia's calculate_likelihood_continuous() or:
+///   - Add numerical stability guards (clamp to reasonable negative values)
+///   - Calculate lambda from data like Python does
+///   - Handle edge cases gracefully without returning -∞
 pub fn calculate_likelihood(
     tree: &mut PhyloTree,
     character_matrix: Vec<Vec<i32>>, // character_matrix[leaf_idx][character_idx]
@@ -40,9 +62,16 @@ pub fn calculate_likelihood(
         };
     }
     
-    // Use default parameters if not provided
-    let lambda = mutation_rate.unwrap_or(0.1);
-    let q = collision_probability.unwrap_or(0.1);
+    // WARNING: These defaults are dangerous and cause -150K likelihood errors!
+    // DO NOT USE for production - always pass actual calculated parameters
+    let lambda = mutation_rate.unwrap_or_else(|| {
+        eprintln!("WARNING: Using dangerous default mutation_rate=0.1! This causes -150K errors!");
+        0.1
+    });
+    let q = collision_probability.unwrap_or_else(|| {
+        eprintln!("WARNING: Using dangerous default collision_probability=0.1! This causes -150K errors!");
+        0.1
+    });
     
     // If internal states are not provided, use small MP inference
     let final_internal_states = if let Some(states) = internal_character_states {

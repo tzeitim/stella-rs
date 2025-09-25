@@ -547,7 +547,10 @@ pub fn optimized_phs(
     });
     
     // Use provided collision probability or default
-    let coll_prob = collision_probability.unwrap_or(0.1); // Default collision probability
+    let coll_prob = collision_probability.unwrap_or_else(|| {
+        eprintln!("WARNING: Using default collision_probability=0.1 in PHS! Pass actual calculated probability!");
+        0.1
+    });
     
     // Calculate using direct method
     let (phs_score, total_pairs, method, chunks) = 
