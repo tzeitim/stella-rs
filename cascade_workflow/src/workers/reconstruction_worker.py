@@ -221,7 +221,11 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         # Reconstruct ancestral characters and scale
         optimized_tree.reconstruct_ancestral_characters()
         optimized_tree.scale_to_unit_length()
-        
+
+        # Store reconstructed tree for later analysis
+        reconstruction_id_str = f"instance{gt_instance_id}_sim{cas9_simulation_id}_recon{reconstruction_id}_tier{tier_num}_{solver_name}"
+        reconstructed_tree_filename = f"{reconstruction_id_str}_reconstructed.pkl"
+
         # Calculate metrics
         computation_time = time.time() - start_time
         
@@ -463,6 +467,32 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         logger.info(f"Key metrics - RF: {metrics.get('RF_distance', 'N/A')}, "
                    f"Triplets: {triplets_str}, "
                    f"cPHS: {metrics.get('cPHS', 'N/A')}")
+
+        # Store reconstructed tree for later analysis
+        try:
+
+            # Determine output directory
+            if config and 'execution' in config and 'output_dir' in config['execution']:
+                output_base = os.path.dirname(config['execution']['output_dir'])
+            else:
+                # Fallback to current working directory
+                output_base = '.'
+
+            reconstructed_trees_dir = os.path.join(output_base, 'reconstructed_trees')
+            os.makedirs(reconstructed_trees_dir, exist_ok=True)
+
+            # Save the reconstructed tree
+            reconstructed_tree_path = os.path.join(reconstructed_trees_dir, reconstructed_tree_filename)
+            with open(reconstructed_tree_path, 'wb') as f:
+                pickle.dump(optimized_tree, f)
+
+            # Add tree path to metrics
+            metrics['reconstructed_tree_path'] = reconstructed_tree_path
+            logger.info(f"Saved reconstructed tree to: {reconstructed_tree_path}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save reconstructed tree: {e}")
+            metrics['reconstructed_tree_path'] = None
 
         # Flatten nested dictionaries for clean output
         flattened_metrics = {}
