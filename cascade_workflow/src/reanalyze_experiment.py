@@ -19,11 +19,7 @@ import logging
 import numpy as np
 
 
-from core.metrics_computation import (
-    compute_all_metrics,
-    create_metrics_rows,
-    extract_parameters_from_tree
-)
+from core.shared_metrics import calculate_metrics_for_trees
 import cassiopeia as cass
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -187,13 +183,29 @@ class ExperimentReanalyzer:
             # Get tier information
             tier_info = self._get_tier_info(parsed['tier_num'])
 
-            # Compute all metrics using the main source implementation
+            # Compute all metrics using the shared pipeline implementation
             try:
-                metrics = compute_all_metrics(
+                # Extract parameters based on mode
+                lam_sim = lam_gt = q_sim = q_gt = None
+                if cas9_tree and hasattr(cas9_tree, 'parameters'):
+                    lam_sim = cas9_tree.parameters.get('lam_true')
+                    q_sim = cas9_tree.parameters.get('q_true')
+                    lam_gt = cas9_tree.parameters.get('lam_gt')
+                    q_gt = cas9_tree.parameters.get('q_gt')
+
+                # Use the same metrics calculation as the pipeline
+                metrics = calculate_metrics_for_trees(
                     reconstructed_tree=reconstructed_tree,
-                    reference_tree=self.gt_tree,
-                    cas9_tree=cas9_tree,
-                    config=self.config
+                    reference_tree=cas9_tree if cas9_tree else self.gt_tree,
+                    config=self.config,
+                    gt_instance_id=parsed['instance_id'],
+                    cas9_simulation_id=parsed['sim_id'],
+                    reconstruction_id=parsed['reconstruction_id'],
+                    solver_name=parsed['solver'],
+                    lam_sim=lam_sim,
+                    q_sim=q_sim,
+                    lam_gt=lam_gt,
+                    q_gt=q_gt
                 )
 
                 # Create reconstruction ID
@@ -201,13 +213,20 @@ class ExperimentReanalyzer:
                                    f"recon{parsed['reconstruction_id']}_tier{parsed['tier_num']}_"
                                    f"{parsed['solver']}")
 
-                # Create standardized rows
-                rows = create_metrics_rows(
-                    base_metrics=metrics,
-                    reconstruction_id=reconstruction_id,
-                    solver=parsed['solver'],
-                    tier_info=tier_info
-                )
+                # Flatten the metrics for DataFrame creation
+                row = {
+                    'reconstruction_id': reconstruction_id,
+                    'solver': parsed['solver'],
+                    'tier': parsed['tier_num'],
+                    **metrics
+                }
+
+                # Handle parsimony score special case
+                if isinstance(metrics.get('parsimony_score'), dict):
+                    row.update(metrics['parsimony_score'])
+                    del row['parsimony_score']
+
+                rows = [row]
 
                 all_results.extend(rows)
 

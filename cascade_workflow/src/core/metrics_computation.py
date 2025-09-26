@@ -212,16 +212,19 @@ def calculate_likelihood_score(tree: cass.data.CassiopeiaTree) -> Dict[str, Any]
     This implements the likelihood calculation from reconstruction_worker.py lines 419-463.
     """
     try:
-        # Parameter validation
+        # Parameter validation - needs at least ONE of the required parameters (same logic as reconstruction_worker.py)
         required_params = ['heritable_missing_rate', 'stochastic_missing_rate', 'stochastic_missing_probability']
-        missing_params = []
+        has_required_param = False
 
         for param in required_params:
-            if not hasattr(tree, 'parameters') or param not in tree.parameters:
-                missing_params.append(param)
+            if hasattr(tree, 'parameters') and param in tree.parameters:
+                has_required_param = True
+                break
 
-        if missing_params:
-            logger.warning(f"Missing required parameters for likelihood: {missing_params}")
+        if not has_required_param:
+            missing_params = [p for p in required_params if not hasattr(tree, 'parameters') or p not in tree.parameters]
+            logger.warning(f"Missing required parameters for likelihood calculation: {missing_params}")
+            logger.warning(f"Available parameters: {list(tree.parameters.keys()) if hasattr(tree, 'parameters') else 'None'}")
             raise ValueError(f"Tree missing required parameters: {missing_params}")
 
         # Calculate likelihood using Cassiopeia's robust implementation
