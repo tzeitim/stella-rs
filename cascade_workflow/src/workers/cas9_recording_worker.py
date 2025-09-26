@@ -145,8 +145,15 @@ def apply_cas9_recording_to_tree(gt_tree, tier: Cas9SimulationTier, tier_number:
     
     # Get tier-specific missing data parameters from config
     tier_config_dict = config.get('cas9_tiers', {}).get(tier_number, {}) if config else {}
-    heritable_silencing_rate = tier_config_dict.get('heritable_silencing_rate', 0.0001)
-    stochastic_silencing_rate = tier_config_dict.get('stochastic_silencing_rate', 0.01)
+    heritable_silencing_rate = tier_config_dict.get('heritable_silencing_rate', 0)
+    stochastic_silencing_rate = tier_config_dict.get('stochastic_silencing_rate', 0)
+
+    # Warn if non-zero missing rates are specified (should be 0 to match simulation_phs.py golden standard)
+    if heritable_silencing_rate != 0 or stochastic_silencing_rate != 0:
+        logger.warning(f"WARNING: Non-zero missing data rates specified for Tier {tier_number}. "
+                      f"heritable_silencing_rate={heritable_silencing_rate}, "
+                      f"stochastic_silencing_rate={stochastic_silencing_rate}. "
+                      f"PHS not supported with missing data")
 
     logger.info(f"Missing data rates for Tier {tier_number}: "
                 f"heritable={heritable_silencing_rate}, stochastic={stochastic_silencing_rate}")
