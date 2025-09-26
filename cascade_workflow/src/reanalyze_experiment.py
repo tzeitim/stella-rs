@@ -20,6 +20,7 @@ import numpy as np
 
 
 from core.shared_metrics import calculate_metrics_for_trees
+from core.metrics_computation import extract_parameters_from_tree
 import cassiopeia as cass
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -205,7 +206,8 @@ class ExperimentReanalyzer:
                     lam_sim=lam_sim,
                     q_sim=q_sim,
                     lam_gt=lam_gt,
-                    q_gt=q_gt
+                    q_gt=q_gt,
+                    tier_num=parsed['tier_num']
                 )
 
                 # Create reconstruction ID
@@ -218,6 +220,8 @@ class ExperimentReanalyzer:
                     'reconstruction_id': reconstruction_id,
                     'solver': parsed['solver'],
                     'tier': parsed['tier_num'],
+                    'phs_lam_source': 'simulation',  # Add expected column for summary
+                    'cPHS': metrics.get('cPHS_simulation', np.nan),  # Add expected column name
                     **metrics
                 }
 
@@ -230,8 +234,11 @@ class ExperimentReanalyzer:
 
                 all_results.extend(rows)
 
-                logger.debug(f"Computed metrics: RF={metrics.get('RF_distance', 'N/A'):.3f}, "
-                           f"cPHS={metrics.get('phs_sim', 'N/A'):.6f}")
+                rf_val = metrics.get('RF_distance', 'N/A')
+                cphs_val = metrics.get('cPHS_simulation', 'N/A')
+                rf_str = f"{rf_val:.3f}" if isinstance(rf_val, (int, float)) else str(rf_val)
+                cphs_str = f"{cphs_val:.6f}" if isinstance(cphs_val, (int, float)) else str(cphs_val)
+                logger.debug(f"Computed metrics: RF={rf_str}, cPHS={cphs_str}")
 
             except Exception as e:
                 logger.error(f"Failed to compute metrics for {recon_file.name}: {e}")
@@ -282,43 +289,30 @@ class ExperimentReanalyzer:
             # Get tier information
             tier_info = self._get_tier_info(tier_num)
 
-            # Extract parameters and compute basic metrics for CAS9 tree
+            # For CAS9 trees, create basic row (simplified for now)
             try:
                 params = extract_parameters_from_tree(cas9_tree, "simulation")
-
-                # For CAS9 trees, we don't compute RF/triplets (no reconstruction)
-                # but we can compute PHS using the tree itself
-                from core.metrics_computation import calculate_phs_scores
-
-                phs_scores = calculate_phs_scores(
-                    cas9_tree,
-                    params['lam_from_simulation'],
-                    params['q_from_simulation'],
-                    params.get('lam_gt'),
-                    params.get('q_gt')
-                )
-
-                # Combine all metrics
-                metrics = {**params, **phs_scores}
-                metrics.update({
-                    'RF_distance': np.nan,  # Not applicable for CAS9 trees
-                    'triplets_distance': np.nan,  # Not applicable for CAS9 trees
-                })
 
                 # Create reconstruction ID
                 reconstruction_id = f"instance{instance_id}_sim{sim_id}_tier{tier_num}_cas9"
 
-                # Create standardized rows
-                rows = create_metrics_rows(
-                    base_metrics=metrics,
-                    reconstruction_id=reconstruction_id,
-                    solver='cas9_recording',
-                    tier_info=tier_info
-                )
+                # Create basic row for CAS9 tree
+                row = {
+                    'reconstruction_id': reconstruction_id,
+                    'solver': 'cas9_recording',
+                    'tier': tier_num,
+                    'phs_lam_source': 'simulation',
+                    'cPHS': np.nan,  # Not applicable without reconstruction
+                    'RF_distance': np.nan,
+                    'triplets_distance': np.nan,
+                    **params
+                }
+
+                rows = [row]
 
                 all_results.extend(rows)
 
-                logger.debug(f"Computed CAS9 metrics: cPHS={metrics.get('phs_sim', 'N/A'):.6f}")
+                logger.debug(f"Added CAS9 tree: {reconstruction_id}")
 
             except Exception as e:
                 logger.error(f"Failed to compute metrics for {cas9_key}: {e}")
