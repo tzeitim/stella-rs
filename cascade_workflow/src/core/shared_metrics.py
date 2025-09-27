@@ -186,23 +186,22 @@ def calculate_metrics_for_trees(reconstructed_tree: cass.data.CassiopeiaTree,
         # Extract k from the tier configuration to match simulation_phs.py line 155
         k = None
 
-        # Get k from tier configuration
+        # Get k from tier configuration (PRIORITY: use config over priors count)
         if tier_num is not None and config and 'cas9_tiers' in config:
             tier_config = config['cas9_tiers'].get(tier_num)
             if tier_config and 'k' in tier_config:
-                k = tier_config['k']
-                logger.info(f"Using k={k} cassettes from tier {tier_num} config")
+                k = tier_config['k'] * tier_config.get('cassette_size', 1)  # k cassettes * cassette_size
+                logger.info(f"Using k={k} recording sites from tier {tier_num} config ({tier_config['k']} cassettes × {tier_config.get('cassette_size', 1)} sites)")
 
-        # Fallback: try to determine k from priors
+        # Fallback: try to determine k from priors (but only if no config)
         if k is None and hasattr(reconstructed_tree, 'priors') and reconstructed_tree.priors:
-            # If priors exist, k should be the number of cassette characters that have priors
-            # Following simulation_phs.py: gt_tree.priors = {i: priors for i in range(k)}
-            k = len(reconstructed_tree.priors)
-            logger.info(f"Detected k={k} cassettes from priors")
+            # Limit to reasonable size (simulation_phs.py uses k=50)
+            k = min(50, len(reconstructed_tree.priors))
+            logger.warning(f"No tier config found, using first {k} characters from {len(reconstructed_tree.priors)} available priors")
 
         # Final fallback: estimate from character matrix size
         if k is None:
-            k = min(100, reconstructed_tree.character_matrix.shape[1])
+            k = min(50, reconstructed_tree.character_matrix.shape[1])
             logger.warning(f"No tier config or priors found, using fallback k={k}")
 
         # Create likelihood tree with only k cassette characters (simulation_phs.py approach)
