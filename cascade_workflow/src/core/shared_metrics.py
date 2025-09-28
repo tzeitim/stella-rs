@@ -164,6 +164,10 @@ def calculate_metrics_for_trees(reconstructed_tree: cass.data.CassiopeiaTree,
         logger.warning(f"Parsimony calculation failed: {e}")
         metrics['parsimony_score'] = {'parsimony_score': np.nan}
 
+    # Note: Relative parsimony (solver parsimony / minimum solver parsimony) is computed
+    # at the experiment level after all trees are processed, not for individual trees.
+    # See _add_relative_parsimony() in reanalyze_experiment.py
+
     # Likelihood calculation following simulation_phs.py golden standard
     try:
         logger.info("Computing likelihood score")
@@ -193,16 +197,9 @@ def calculate_metrics_for_trees(reconstructed_tree: cass.data.CassiopeiaTree,
                 k = tier_config['k'] * tier_config.get('cassette_size', 1)  # k cassettes * cassette_size
                 logger.info(f"Using k={k} recording sites from tier {tier_num} config ({tier_config['k']} cassettes × {tier_config.get('cassette_size', 1)} sites)")
 
-        # Fallback: try to determine k from priors (but only if no config)
-        if k is None and hasattr(reconstructed_tree, 'priors') and reconstructed_tree.priors:
-            # Limit to reasonable size (simulation_phs.py uses k=50)
-            k = min(50, len(reconstructed_tree.priors))
-            logger.warning(f"No tier config found, using first {k} characters from {len(reconstructed_tree.priors)} available priors")
-
-        # Final fallback: estimate from character matrix size
+        # Tier configuration is REQUIRED - no guessing
         if k is None:
-            k = min(50, reconstructed_tree.character_matrix.shape[1])
-            logger.warning(f"No tier config or priors found, using fallback k={k}")
+            raise ValueError(f"Tier {tier_num} configuration not found - cannot determine number of recording sites")
 
         # Create likelihood tree with only k cassette characters (simulation_phs.py approach)
         cassette_char_matrix = reconstructed_tree.character_matrix.iloc[:, :k]

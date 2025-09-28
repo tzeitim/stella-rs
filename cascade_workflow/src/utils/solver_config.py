@@ -35,6 +35,16 @@ SOLVERS_CONFIG = {
         'class': lambda: cass.solver.SpectralSolver(),
         'enabled': True
     },
+    'maxcut_greedy': {
+        'name': 'MaxCut Greedy',
+        'class': lambda: cass.solver.MaxCutGreedySolver(),
+        'enabled': True
+    },
+    'spectral_greedy': {
+        'name': 'Spectral Greedy',
+        'class': lambda: cass.solver.SpectralGreedySolver(),
+        'enabled': True
+    },
     'smj': {
         'name': 'Shared Mutation Joining',
         'class': lambda: cass.solver.SharedMutationJoiningSolver(),

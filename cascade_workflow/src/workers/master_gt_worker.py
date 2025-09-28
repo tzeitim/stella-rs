@@ -163,15 +163,15 @@ def generate_ground_truth_tree(config: Dict[str, Any]):
 
     # Get tree configuration from config file
     gt_config = config.get('ground_truth', {}).get('tree_config', {})
-    
+
     # Tree configuration with config values, falling back to defaults
     tree_config = {
         'N': gt_config.get('N', 1e3),  # Number of cells in original tree
-        'n': gt_config.get('n', 1e2),  # Number of cells after subsampling  
+        'n': gt_config.get('n', 1e2),  # Number of cells after subsampling
         'fitness': {
             'birth_waiting_distribution': lambda scale: np.random.exponential(1/scale),
             'initial_birth_scale': gt_config.get('fitness', {}).get('initial_birth_scale', 2),
-            'death_waiting_distribution': lambda: np.inf,  # Cells don't die
+            'death_waiting_distribution': lambda: np.inf if gt_config.get('death_waiting_distribution', 'infinite') == 'infinite' else lambda: np.inf,
             'mutation_distribution': lambda: 1 if np.random.uniform() < 0.5 else 0,
             'fitness_distribution': lambda: np.random.normal(0.5, gt_config.get('fitness', {}).get('fitness_std', 0.25)),
             'fitness_base': gt_config.get('fitness', {}).get('fitness_base', 1.1)
