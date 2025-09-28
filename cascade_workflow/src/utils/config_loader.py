@@ -42,6 +42,16 @@ class Cas9TierConfig:
     @property
     def total_sites(self) -> int:
         return self.k * self.cassette_size
+
+    @property
+    def recording_sites(self) -> int:
+        """Alias for total_sites for backward compatibility"""
+        return self.total_sites
+
+    @property
+    def states_per_site(self) -> int:
+        """Alias for m for backward compatibility"""
+        return self.m
     
     def generate_mutation_rates(self) -> List[float]:
         """Generate mutation rates based on the specified pattern."""

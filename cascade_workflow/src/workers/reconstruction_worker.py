@@ -80,24 +80,9 @@ logger = logging.getLogger(__name__)
 
 def get_class_of_solver(solver_name):
     """Returns the solver class based on the solver name"""
-    if solver_name == "nj":
-        return cass.solver.NeighborJoiningSolver(add_root=True)
-    elif solver_name == "maxcut":
-        return cass.solver.MaxCutSolver()
-    elif solver_name == "greedy":
-        return cass.solver.VanillaGreedySolver()
-    elif solver_name == "vanilla":
-        return cass.solver.VanillaGreedySolver()
-    elif solver_name == "spectral":
-        return cass.solver.SpectralSolver()
-    elif solver_name == "smj":
-        return cass.solver.SharedMutationJoiningSolver()
-    elif solver_name == "dmj":
-        return cass.solver.DistanceSolver.DistanceSolver()
-    elif solver_name == "ilp":
-        return cass.solver.ILPSolver()
-    else:
-        raise ValueError(f"Unknown solver: {solver_name}")
+    # Use the centralized solver configuration instead of hardcoded mapping
+    from solver_config import get_solver_class
+    return get_solver_class(solver_name)
 
 def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int,
                                      tier_config=None, gt_instance_id: int = 0, cas9_simulation_id: int = 0,

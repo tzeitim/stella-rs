@@ -36,7 +36,7 @@ def calculate_metrics_for_trees(reconstructed_tree: cass.data.CassiopeiaTree,
         if not hasattr(reconstructed_tree, 'parameters'):
             reconstructed_tree.parameters = {}
 
-        # Copy essential parameters for likelihood calculation (from reconstruction_worker.py lines 195-210)
+        # Copy essential parameters for likelihood calculation 
         required_params = [
             'heritable_missing_rate', 'stochastic_missing_rate', 'stochastic_missing_probability',
             'mutation_rate', 'mutation_rates', 'state_priors', 'lam_gt', 'q_gt',
@@ -47,12 +47,12 @@ def calculate_metrics_for_trees(reconstructed_tree: cass.data.CassiopeiaTree,
             if param_name in reference_tree.parameters:
                 reconstructed_tree.parameters[param_name] = reference_tree.parameters[param_name]
 
-    # PHS calculations (from reconstruction_worker.py lines 350-415)
+    # PHS calculations 
     try:
         max_threads = os.environ.get('LSB_MAX_NUM_PROCESSORS', '16')
         logger.info(f"Starting PHS calculations with {max_threads} threads")
 
-        # Prepare data for PHS calculation (same as reconstruction_worker.py)
+        # Prepare data for PHS calculation 
         tree_newick = reconstructed_tree.get_newick(record_branch_lengths=True, record_node_names=True)
         leaf_names = list(reconstructed_tree.character_matrix.index)
         character_matrix = reconstructed_tree.character_matrix.values.astype(int).tolist()
@@ -114,7 +114,7 @@ def calculate_metrics_for_trees(reconstructed_tree: cass.data.CassiopeiaTree,
         metrics['cPHS_simulation'] = np.nan
         metrics['cPHS_gt'] = np.nan
 
-    # Triplets distance (from reconstruction_worker.py lines 295-320)
+    # Triplets distance 
     try:
         triplets_trials = config.get('analysis', {}).get('triplets_trials', 1000)
         base_seed = config.get('analysis', {}).get('reconstruction_seed',
@@ -136,7 +136,7 @@ def calculate_metrics_for_trees(reconstructed_tree: cass.data.CassiopeiaTree,
         logger.warning(f"Triplets calculation failed: {e}")
         metrics['triplets_distance'] = np.nan
 
-    # Robinson-Foulds distance (from reconstruction_worker.py lines 322-331)
+    # Robinson-Foulds distance 
     try:
         logger.info("Computing Robinson-Foulds distance")
         rf_result = stellars.rf_distance(
@@ -149,7 +149,7 @@ def calculate_metrics_for_trees(reconstructed_tree: cass.data.CassiopeiaTree,
         logger.warning(f"RF distance calculation failed: {e}")
         metrics['RF_distance'] = np.nan
 
-    # Parsimony score (from reconstruction_worker.py lines 333-345)
+    # Parsimony score 
     try:
         logger.info("Computing parsimony score")
         parsimony_result = stellars.parsimony_score(
