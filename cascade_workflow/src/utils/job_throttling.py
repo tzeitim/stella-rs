@@ -5,6 +5,7 @@ Provides mechanisms to control job submission rate and concurrency to avoid
 overwhelming the cluster with too many simultaneous jobs.
 """
 
+import os
 import subprocess
 import time
 import logging
@@ -62,6 +63,14 @@ class JobThrottler:
     def __init__(self, config: ThrottlingConfig, shared_dir: Optional[Path] = None):
         self.config = config
         self.shared_dir = shared_dir
+
+        # Check for throttling disable flag
+        self.throttling_disabled = os.getenv('DISABLE_THROTTLING', 'false').lower() == 'true'
+
+        if self.throttling_disabled:
+            logger.warning("⚠️  JOB THROTTLING IS DISABLED - Jobs will be submitted immediately!")
+        else:
+            logger.info("Job throttling enabled with config: %s", self.config)
         self.last_check_time = 0
         self.cached_job_counts = {"cas9": 0, "reconstruction": 0}
         self.last_config_check = 0
@@ -145,7 +154,7 @@ class JobThrottler:
             logger.warning(f"Failed to update config from dynamic file: {e}")
 
     def get_running_job_counts(self) -> Dict[str, int]:
-        """Get current running job counts by type"""
+        """Get current active job counts (RUN + PEND) by type"""
         current_time = time.time()
 
         # Use cached counts if checked recently
@@ -153,9 +162,9 @@ class JobThrottler:
             return self.cached_job_counts.copy()
 
         try:
-            # Query LSF for running jobs
+            # Query LSF for both running and pending jobs
             result = subprocess.run(
-                ['bjobs', '-w', '-u', 'all', '-r'],  # Running jobs only
+                ['bjobs', '-w', '-u', 'all'],  # All active jobs (RUN + PEND)
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -189,7 +198,7 @@ class JobThrottler:
             }
             self.last_check_time = current_time
 
-            logger.debug(f"Current running jobs - CAS9: {cas9_count}, Reconstruction: {reconstruction_count}")
+            logger.debug(f"Current active jobs (RUN+PEND) - CAS9: {cas9_count}, Reconstruction: {reconstruction_count}")
 
         except subprocess.TimeoutExpired:
             logger.warning("bjobs query timed out, using cached counts")
@@ -207,7 +216,7 @@ class JobThrottler:
         can_submit = counts["cas9"] < self.config.max_concurrent_cas9_jobs
 
         if not can_submit:
-            logger.info(f"CAS9 job submission throttled: {counts['cas9']}/{self.config.max_concurrent_cas9_jobs} running")
+            logger.info(f"CAS9 job submission throttled: {counts['cas9']}/{self.config.max_concurrent_cas9_jobs} active (RUN+PEND)")
 
         return can_submit
 
@@ -220,7 +229,7 @@ class JobThrottler:
         can_submit = counts["reconstruction"] < self.config.max_concurrent_reconstruction_jobs
 
         if not can_submit:
-            logger.info(f"Reconstruction job submission throttled: {counts['reconstruction']}/{self.config.max_concurrent_reconstruction_jobs} running")
+            logger.info(f"Reconstruction job submission throttled: {counts['reconstruction']}/{self.config.max_concurrent_reconstruction_jobs} active (RUN+PEND)")
 
         return can_submit
 
@@ -280,6 +289,11 @@ class JobThrottler:
         Returns:
             Result from submit_func or None if throttled
         """
+        # If throttling is disabled, submit immediately
+        if self.throttling_disabled:
+            logger.info(f"Throttling disabled - submitting {job_type} job immediately")
+            return submit_func(*args, **kwargs)
+
         # Check if we can submit
         if job_type == 'cas9':
             if not self.wait_for_cas9_slot():

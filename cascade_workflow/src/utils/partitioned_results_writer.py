@@ -162,6 +162,24 @@ class ConcurrentPartitionedWriter:
                 if existing_files:
                     # Read existing data and append
                     existing_df = pl.scan_parquet(str(self.config.output_dir / "**/*.parquet")).collect()
+
+                    # Align schemas by adding missing columns with null values
+                    existing_cols = set(existing_df.columns)
+                    new_cols = set(df.columns)
+
+                    # Add missing columns to existing data
+                    for col in new_cols - existing_cols:
+                        existing_df = existing_df.with_columns(pl.lit(None).alias(col))
+
+                    # Add missing columns to new data
+                    for col in existing_cols - new_cols:
+                        df = df.with_columns(pl.lit(None).alias(col))
+
+                    # Ensure column order matches
+                    common_cols = sorted(existing_cols | new_cols)
+                    existing_df = existing_df.select(common_cols)
+                    df = df.select(common_cols)
+
                     combined_df = pl.concat([existing_df, df])
                     
                     # Remove old partitioned structure and rewrite

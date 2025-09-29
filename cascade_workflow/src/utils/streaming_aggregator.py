@@ -23,7 +23,7 @@ class StreamingResultsAggregator:
         
     def append_results_batch(self, parquet_files: List[Path], use_lock: bool = True):
         """
-        Append a batch of parquet files to consolidated results
+        Write a batch of parquet files to consolidated results (overwrites existing)
         Uses file locking for concurrent worker safety
         """
         if not parquet_files:
@@ -45,13 +45,13 @@ class StreamingResultsAggregator:
                 
             batch_df = pl.concat(batch_dfs)
             
-            # Append to consolidated file with locking
+            # Write to consolidated file with locking
             if use_lock:
                 self._append_with_lock(batch_df)
             else:
                 self._append_direct(batch_df)
-                
-            self.logger.info(f"Appended {len(batch_dfs)} files to {self.consolidated_path}")
+
+            self.logger.info(f"Wrote {len(batch_dfs)} files to {self.consolidated_path}")
             
         except Exception as e:
             self.logger.error(f"Failed to append batch: {e}")
@@ -103,20 +103,28 @@ class StreamingResultsAggregator:
         # Write back to parquet
         combined_df.write_parquet(str(self.consolidated_path))
     
-    def process_directory(self, results_dir: Path, file_pattern: str = "*_metrics.parquet"):
+    def process_directory(self, results_dir: Path, file_pattern: str = "*_metrics.parquet", clear_existing: bool = True):
         """
         Process all matching files in directory with streaming approach
+
+        Args:
+            clear_existing: If True, remove existing consolidated file before processing
         """
+        # Clear existing output file to prevent duplicates from previous runs
+        if clear_existing and self.consolidated_path.exists():
+            self.consolidated_path.unlink()
+            self.logger.info(f"Cleared existing consolidated file: {self.consolidated_path}")
+
         parquet_files = list(Path(results_dir).rglob(file_pattern))
         self.logger.info(f"Found {len(parquet_files)} files to process")
-        
+
         # Process in batches
         for i in range(0, len(parquet_files), self.batch_size):
             batch = parquet_files[i:i + self.batch_size]
             self.logger.info(f"Processing batch {i//self.batch_size + 1}/{(len(parquet_files)-1)//self.batch_size + 1}")
-            
+
             self.append_results_batch(batch)
-            
+
         self.logger.info(f"Completed processing {len(parquet_files)} files")
 
 

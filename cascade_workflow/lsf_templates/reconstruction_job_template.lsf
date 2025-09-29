@@ -1,10 +1,10 @@
 #!/bin/bash
 #BSUB -J reconstruct_tier{TIER}_{SOLVER}
 #BSUB -oo {SHARED_DIR}/logs/reconstruct_tier{TIER}_{SOLVER}_%J.out
-#BSUB -eo {SHARED_DIR}/logs/reconstruct_tier{TIER}_{SOLVER}_%J.err  
-#BSUB -W 0:45
-#BSUB -n 20 -R "span[hosts=1]"
-#BSUB -R rusage[mem=1.5GB]
+#BSUB -eo {SHARED_DIR}/logs/reconstruct_tier{TIER}_{SOLVER}_%J.err
+#BSUB -q {RECONSTRUCTION_QUEUE}
+{RECONSTRUCTION_TIME_LIMIT}#BSUB -n {RECONSTRUCTION_CORES} -R "span[hosts=1]"
+#BSUB -R rusage[mem={RECONSTRUCTION_MEMORY}]
 
 # Reconstruction Job - Level 3 of Cascading LSF System
 # Performs reconstruction with {SOLVER} solver for Tier {TIER}

@@ -1,0 +1,93 @@
+cas9_tiers:
+  10:
+    base_mutation_rate: 1.2
+    cassette_size: 10
+    description: 'Missing data test: stochastic 2.5%, heritable 2.5%'
+    k: 10
+    m: 50
+    mutation_rate_pattern: uniform
+    name: Both 2.5%
+    state_priors_exponent: 1e-4
+    stochastic_silencing_rate: 0.025
+    heritable_silencing_rate: 0.025
+debug:
+  save_debug_info: true
+  test_mode: false
+  verbose_logging: true
+analysis:
+  reconstruction_seed: 8000
+  triplets_trials: 1000
+  min_branch_length: 1e-8
+  branch_length_fraction: 0.01
+  min_branch_length_floor: 1e-10
+execution:
+  cas9_simulations_per_gt: 2
+  conda_environment: cas11
+  num_gt_instances: 3
+  parallel_execution: true
+  random_seed: 42
+  run_name: both_01
+ground_truth:
+  instance_seeds: []
+  tree_config:
+    N: 8000
+    fitness:
+      fitness_base: 1.0
+      fitness_std: 0.0
+      initial_birth_scale: 2
+    n: 1200
+lsf:
+  queues:
+    cas9_recording: gsla-cpu
+    master_gt: gsla-cpu
+    reconstruction: gsla-cpu
+  resources:
+    cas9_recording:
+      cores: 50
+      memory_gb: 1.5
+    master_gt:
+      cores: 50
+      memory_gb: 1.5
+    reconstruction:
+      cores: 50
+      memory_gb: 1.5
+  throttling:
+    batch_size: 5
+    check_interval: 30
+    job_submission_delay: 2.0
+    max_concurrent_cas9_jobs: 50
+    max_concurrent_reconstruction_jobs: 50
+monitoring:
+  check_interval: 120
+  continuous_monitoring: true
+  max_job_wait_time: 21600
+  notifications:
+    enabled: false
+output:
+  cas9_prefix: cas9_both_01
+  compare_across_tiers: true
+  generate_plots: false
+  gt_prefix: gt_both_01
+  result_prefix: result_both_01
+  save_detailed_metrics: true
+  save_intermediate_trees: true
+  shared_dir: /home/projects/nyosef/pedro/src/stella-rs/output/pilot/both_01
+solvers:
+  disabled:
+  - dmj
+  - vanilla
+  - ilp
+  enabled:
+  - nj
+  - greedy
+  - spectral
+  - maxcut
+  - smj
+  reconstructions_per_solver: 1
+  solver_params:
+    greedy:
+      max_iterations: 3000
+    maxcut:
+      time_limit: 900
+    nj:
+      add_root: true

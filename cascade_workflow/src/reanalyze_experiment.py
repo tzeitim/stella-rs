@@ -117,9 +117,22 @@ def process_single_tree(args_tuple):
         if parsed['tier_num'] is None or parsed['solver'] is None:
             return []
 
-        # Load reconstructed tree
+        # Load reconstructed tree (handle both old and new formats)
         with open(recon_file_path, 'rb') as f:
-            reconstructed_tree = pickle.load(f)
+            loaded_data = pickle.load(f)
+
+        # Handle new format (tree + metadata) vs old format (just tree)
+        if isinstance(loaded_data, dict) and 'tree' in loaded_data and 'metadata' in loaded_data:
+            # New format: extract tree and use stored reconstruction_id
+            reconstructed_tree = loaded_data['tree']
+            stored_metadata = loaded_data['metadata']
+            # Override parsed reconstruction_id with stored one if available
+            if 'base_reconstruction_id' in stored_metadata:
+                base_id = stored_metadata['base_reconstruction_id']
+                logger.info(f"Using stored reconstruction_id: {base_id}")
+        else:
+            # Old format: just the tree
+            reconstructed_tree = loaded_data
 
         # Find corresponding CAS9 tree
         cas9_key = f"instance{parsed['instance_id']}_sim{parsed['sim_id']}_tier{parsed['tier_num']}_instance"

@@ -409,26 +409,91 @@ class MasterGTWorker:
             # Don't use config's shared_dir as it may not match the actual directory structure
             output_base = self.shared_dir
 
+            # Get queue from configuration
+            lsf_config = self.config.get('lsf', {})
+            queues = lsf_config.get('queues', {})
+            cas9_queue = queues.get('cas9_recording', 'short')
+
             # Build bsub command with instance and simulation-specific naming
             cmd = [
                 'bsub',
+                '-q', cas9_queue,
                 '-J', f'cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_analysis',
                 '-oo', f"{self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.out",
                 '-eo', f"{self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.err",
-                '-W', '0:30',  # 30 minutes
                 '-n', '15', '-R', 'span[hosts=1]',
-                '-R', 'rusage[mem=1.5GB]',
-                'python', str(Path(__file__).parent / 'cas9_recording_worker.py'),
-                '--gt_tree_path', gt_tree_path,
-                '--tier', str(tier),
-                '--instance', str(instance_id),
-                '--cas9_simulation_id', str(cas9_simulation_id),
-                '--output_dir', str(output_base / "cas9_instances"),
-                '--shared_dir', str(output_base)
+                '-R', 'rusage[mem=1.5GB]'
             ]
 
-            # Submit job
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Pass environment variables for feature flags
+            env_vars = []
+            if os.getenv('QUEUE_BASED_SUBMISSION'):
+                env_vars.append('QUEUE_BASED_SUBMISSION=' + os.getenv('QUEUE_BASED_SUBMISSION'))
+            if os.getenv('DISABLE_THROTTLING'):
+                env_vars.append('DISABLE_THROTTLING=' + os.getenv('DISABLE_THROTTLING'))
+
+            if env_vars:
+                cmd.extend(['-env', ','.join(env_vars)])
+
+            # Build command - ensure we're in the right directory and environment
+            queue_based = os.getenv('QUEUE_BASED_SUBMISSION', 'false').lower() == 'true'
+            if queue_based:
+                logger.info(f"Queue-based mode: Adding --queue-based flag to Cas9 job (instance={instance_id}, sim={cas9_simulation_id}, tier={tier})")
+
+            # Create a custom LSF script for this specific cas9 job (like the master job does)
+            job_script_content = f"""#!/bin/bash
+#BSUB -J cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_analysis
+#BSUB -oo {self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.out
+#BSUB -eo {self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.err
+#BSUB -q {cas9_queue}
+#BSUB -n 15 -R "span[hosts=1]"
+#BSUB -R rusage[mem=1.5GB]
+
+echo "=== Cas9 Recording Job Starting - Tier {tier} ==="
+echo "Job ID: $LSB_JOBID"
+echo "Host: $HOSTNAME"
+echo "Date: $(date)"
+echo "GT Tree Path: {gt_tree_path}"
+echo "Tier: {tier}"
+echo "Instance: {instance_id}"
+echo "Simulation ID: {cas9_simulation_id}"
+echo "Queue-based: {queue_based}"
+
+# Set up environment
+export PYTHONPATH="${{PYTHONPATH}}:{self.shared_dir}"
+export POLARS_MAX_THREADS=$LSB_MAX_NUM_PROCESSORS
+
+# Activate conda environment
+eval "$(/home/projects/nyosef/pedro/miniforge3/bin/conda shell.bash hook)"
+conda activate {self.config.get('execution', {}).get('conda_environment', 'cas11')}
+
+# Change to shared directory
+cd {self.shared_dir}
+
+# Run Cas9 recording worker
+echo "Executing Cas9 recording worker..."
+python cas9_recording_worker.py \\
+    --gt_tree_path {gt_tree_path} \\
+    --tier {tier} \\
+    --instance {instance_id} \\
+    --cas9_simulation_id {cas9_simulation_id} \\
+    --output_dir {output_base / 'cas9_instances'} \\
+    --shared_dir {output_base}{"" if not queue_based else " --queue-based"}
+
+exit_code=$?
+
+if [ $exit_code -eq 0 ]; then
+    echo "=== Cas9 Recording Job Completed Successfully - Tier {tier} ==="
+else
+    echo "=== Cas9 Recording Job Failed with exit code: $exit_code - Tier {tier} ==="
+fi
+
+exit $exit_code
+"""
+
+            # Submit job using stdin like the master job does
+            cmd = ['bsub']
+            result = subprocess.run(cmd, input=job_script_content, capture_output=True, text=True)
 
             if result.returncode != 0:
                 raise RuntimeError(f"bsub failed: {result.stderr}")
@@ -438,8 +503,14 @@ class MasterGTWorker:
             logger.info(f"Submitted CAS9 job {job_id} for instance {instance_id}, sim {cas9_simulation_id}, tier {tier}")
             return job_id
 
-        # Use throttling to submit the job
-        return self.throttler.submit_with_throttling(_do_submit, 'cas9')
+        # Check if queue-based submission is enabled - if so, bypass throttling for Cas9 jobs
+        queue_based = os.getenv('QUEUE_BASED_SUBMISSION', 'false').lower() == 'true'
+        if queue_based:
+            logger.info(f"Queue-based mode enabled - submitting Cas9 job immediately (no throttling)")
+            return _do_submit()
+        else:
+            # Use throttling to submit the job
+            return self.throttler.submit_with_throttling(_do_submit, 'cas9')
     
     def update_status(self, level: str, component: str, status: str, details: Any = None) -> None:
         """Update job status in shared status file."""

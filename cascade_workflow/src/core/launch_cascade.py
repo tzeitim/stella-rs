@@ -8,6 +8,7 @@ Supports reproducible seeds, multiple instances, and parameterized execution.
 
 import argparse
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -158,6 +159,23 @@ def substitute_placeholders(template_content: str, shared_dir: Path, conda_envir
         else:
             substituted = substituted.replace('{CAS9_RECORDING_TIME_LIMIT}', '# time_limit not specified - letting queue handle time limits\n')
 
+        # Reconstruction LSF parameters
+        reconstruction_queue = queues.get('reconstruction', 'short')
+        reconstruction_resources = resources.get('reconstruction', {})
+        reconstruction_cores = reconstruction_resources.get('cores', 65)
+        reconstruction_memory = reconstruction_resources.get('memory_gb', 1.5)
+        reconstruction_time_limit = reconstruction_resources.get('time_limit')
+
+        substituted = substituted.replace('{RECONSTRUCTION_QUEUE}', reconstruction_queue)
+        substituted = substituted.replace('{RECONSTRUCTION_CORES}', str(reconstruction_cores))
+        substituted = substituted.replace('{RECONSTRUCTION_MEMORY}', f'{reconstruction_memory}GB')
+
+        # Handle time limit conditionally
+        if reconstruction_time_limit:
+            substituted = substituted.replace('{RECONSTRUCTION_TIME_LIMIT}', f'#BSUB -W {reconstruction_time_limit}\n')
+        else:
+            substituted = substituted.replace('{RECONSTRUCTION_TIME_LIMIT}', '# time_limit not specified - letting queue handle time limits\n')
+
     return substituted
 
 
@@ -237,10 +255,10 @@ def submit_master_job(shared_dir: Path, config_path: str) -> str:
     
     logger.info(f"Copied and updated configuration to: {config_dest}")
     
-    # Submit job with config path as environment variable
-    env_vars = f"CONFIG_PATH={config_dest}"
-    cmd = ['bsub', '-env', env_vars, str(job_script)]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Submit job using stdin redirection to properly respect queue directive
+    cmd = ['bsub']
+    with open(job_script, 'r') as f:
+        result = subprocess.run(cmd, input=f.read(), capture_output=True, text=True)
     
     if result.returncode != 0:
         raise RuntimeError(f"Failed to submit master job: {result.stderr}")
@@ -262,9 +280,28 @@ def main():
                        help='Only set up directories, do not submit jobs')
     parser.add_argument('--local_test', action='store_true',
                        help='Run locally for testing (not on LSF)')
-    
+    parser.add_argument('--no-throttling', action='store_true',
+                       help='Disable job throttling (submit jobs immediately)')
+    parser.add_argument('--queue-based', action='store_true',
+                       help='Use queue-based submission (queue reconstruction jobs instead of submitting)')
+
     args = parser.parse_args()
-    
+
+    # Set throttling disable flag via environment variable
+    if args.no_throttling:
+        os.environ['DISABLE_THROTTLING'] = 'true'
+        logger.warning("⚠️  JOB THROTTLING DISABLED - Jobs will be submitted immediately!")
+
+    # Set queue-based submission flag via environment variable
+    if args.queue_based:
+        os.environ['QUEUE_BASED_SUBMISSION'] = 'true'
+        logger.info("📝 QUEUE-BASED SUBMISSION ENABLED - Reconstruction jobs will be queued")
+
+    # Check for conflicting flags
+    if args.no_throttling and args.queue_based:
+        logger.error("Cannot use both --no-throttling and --queue-based flags together")
+        sys.exit(1)
+
     # Load configuration
     config_obj = load_config(args.config)
     logger.info(f"Loaded configuration from: {args.config}")

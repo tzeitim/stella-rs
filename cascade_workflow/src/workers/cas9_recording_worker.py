@@ -13,6 +13,7 @@ import os
 import pickle
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Dict, Any, List
 import numpy as np
@@ -192,8 +193,8 @@ def apply_cas9_recording_to_tree(gt_tree, tier: Cas9SimulationTier, tier_number:
 class Cas9RecordingWorker:
     """Worker that applies Cas9 recording and submits reconstruction jobs."""
     
-    def __init__(self, gt_tree_path: str, tier: int, instance_id: int, output_dir: str, shared_dir: str, 
-                 cas9_simulation_id: int = 0):
+    def __init__(self, gt_tree_path: str, tier: int, instance_id: int, output_dir: str, shared_dir: str,
+                 cas9_simulation_id: int = 0, queue_based: bool = False):
         self.gt_tree_path = Path(gt_tree_path)
         self.tier = tier
         self.instance_id = instance_id
@@ -209,6 +210,13 @@ class Cas9RecordingWorker:
 
         # Initialize job throttler with dynamic config support
         self.throttler = create_throttler_from_config(self.config, self.shared_dir)
+
+        # Set queue-based submission mode from command line argument
+        self.queue_based_submission = queue_based
+        if self.queue_based_submission:
+            logger.info("✅ Queue-based submission mode enabled - jobs will be queued instead of submitted")
+        else:
+            logger.info("❌ Queue-based submission mode disabled - jobs will be submitted directly")
 
         # Ensure directories exist
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -284,25 +292,36 @@ class Cas9RecordingWorker:
     def submit_reconstruction_jobs(self) -> None:
         """Submit LSF jobs for all solvers for this tier."""
         logger.info(f"Submitting reconstruction jobs for Tier {self.tier} across all solvers...")
-        
+
         submitted_jobs = []
-        
+
         # Get enabled solvers from config
         config_solvers = self.config.get('solvers', {}).get('enabled', ['nj', 'greedy'])
         logger.info(f"Using solvers from config: {config_solvers}")
-        
+
         for solver in config_solvers:
             try:
-                job_id = self.submit_reconstruction_job(solver)
-                submitted_jobs.append({
-                    'solver': solver,
-                    'job_id': job_id,
-                    'status': 'submitted'
-                })
-                logger.info(f"Submitted Tier {self.tier} {solver} reconstruction job: {job_id}")
-                
+                if self.queue_based_submission:
+                    # Queue job instead of submitting immediately
+                    self.queue_reconstruction_job(solver)
+                    submitted_jobs.append({
+                        'solver': solver,
+                        'job_id': 'queued',
+                        'status': 'queued'
+                    })
+                    logger.info(f"Queued Tier {self.tier} {solver} reconstruction job")
+                else:
+                    # Direct submission with throttling
+                    job_id = self.submit_reconstruction_job(solver)
+                    submitted_jobs.append({
+                        'solver': solver,
+                        'job_id': job_id,
+                        'status': 'submitted'
+                    })
+                    logger.info(f"Submitted Tier {self.tier} {solver} reconstruction job: {job_id}")
+
             except Exception as e:
-                logger.error(f"Failed to submit Tier {self.tier} {solver} job: {e}")
+                logger.error(f"Failed to {'queue' if self.queue_based_submission else 'submit'} Tier {self.tier} {solver} job: {e}")
                 submitted_jobs.append({
                     'solver': solver,
                     'job_id': None,
@@ -316,7 +335,34 @@ class Cas9RecordingWorker:
         #     'tier': self.tier,
         #     'submitted_jobs': submitted_jobs
         # })
-    
+
+    def queue_reconstruction_job(self, solver: str) -> None:
+        """Add reconstruction job to submission queue instead of submitting immediately."""
+
+        job_spec = {
+            'cas9_instance_path': str(self.cas9_instance_path),
+            'solver': solver,
+            'tier': self.tier,
+            'instance_id': self.instance_id,
+            'cas9_simulation_id': self.cas9_simulation_id,
+            'output_dir': str(self.output_dir),
+            'shared_dir': str(self.shared_dir),
+            'timestamp': time.time(),
+            'status': 'queued'
+        }
+
+        # Write to queue file
+        queue_file = self.shared_dir / "reconstruction_queue.jsonl"
+
+        # Ensure directory exists
+        queue_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Append to queue (thread-safe single line write)
+        with open(queue_file, 'a') as f:
+            f.write(json.dumps(job_spec) + '\n')
+
+        logger.info(f"Queued {solver} reconstruction job for tier {self.tier} instance {self.instance_id}")
+
     def submit_reconstruction_job(self, solver: str) -> str:
         """Submit LSF job for a specific solver reconstruction with throttling."""
 
@@ -426,18 +472,21 @@ def main():
     parser.add_argument('--instance', type=int, required=True, help='GT instance ID')
     parser.add_argument('--cas9_simulation_id', type=int, default=0, help='Cas9 simulation ID for this GT instance')
     parser.add_argument('--output_dir', required=True, help='Directory to save Cas9 instances')
-    parser.add_argument('--shared_dir', required=True, 
+    parser.add_argument('--shared_dir', required=True,
                        help='Shared directory for job coordination')
-    
+    parser.add_argument('--queue-based', action='store_true',
+                       help='Enable queue-based reconstruction job submission')
+
     args = parser.parse_args()
-    
+
     worker = Cas9RecordingWorker(
-        args.gt_tree_path, 
-        args.tier, 
+        args.gt_tree_path,
+        args.tier,
         args.instance,
-        args.output_dir, 
+        args.output_dir,
         args.shared_dir,
-        args.cas9_simulation_id
+        args.cas9_simulation_id,
+        queue_based=args.queue_based
     )
     worker.run()
 

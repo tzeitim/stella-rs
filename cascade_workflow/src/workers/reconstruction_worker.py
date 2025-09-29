@@ -466,14 +466,29 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
             reconstructed_trees_dir = os.path.join(output_base, 'reconstructed_trees')
             os.makedirs(reconstructed_trees_dir, exist_ok=True)
 
-            # Save the reconstructed tree
+            # Save the reconstructed tree with metadata including full reconstruction_id information
             reconstructed_tree_path = os.path.join(reconstructed_trees_dir, reconstructed_tree_filename)
+
+            # Save tree with metadata including full reconstruction_id information
+            tree_data = {
+                'tree': optimized_tree,
+                'metadata': {
+                    'base_reconstruction_id': reconstruction_id_str,
+                    'gt_instance_id': gt_instance_id,
+                    'cas9_simulation_id': cas9_simulation_id,
+                    'reconstruction_id': reconstruction_id,
+                    'tier_num': tier_num,
+                    'solver_name': solver_name,
+                    'creation_time': time.time()
+                }
+            }
+
             with open(reconstructed_tree_path, 'wb') as f:
-                pickle.dump(optimized_tree, f)
+                pickle.dump(tree_data, f)
 
             # Add tree path to metrics
             metrics['reconstructed_tree_path'] = reconstructed_tree_path
-            logger.info(f"Saved reconstructed tree to: {reconstructed_tree_path}")
+            logger.info(f"Saved reconstructed tree with metadata to: {reconstructed_tree_path}")
 
         except Exception as e:
             logger.warning(f"Failed to save reconstructed tree: {e}")
@@ -683,12 +698,17 @@ class ReconstructionWorker:
 
             # Save to partitioned parquet structure - create separate rows for each parameter source
             try:
+                # Create base reconstruction_id
+                base_reconstruction_id = f"instance{self.gt_instance_id}_sim{self.cas9_simulation_id}_recon{self.reconstruction_id}_tier{self.tier}_{self.solver}"
+
                 # Create two separate result rows - one for simulation, one for ground truth
 
                 # 1. Simulation parameters result
                 result_simulation = result.copy()
                 result_simulation['phs_lam_source'] = 'simulation'
                 result_simulation['phs_q_source'] = 'simulation'
+                # Create unique reconstruction_id including parameter source
+                result_simulation['reconstruction_id'] = f"{base_reconstruction_id}_sim_params"
                 # cPHS contains the simulation-based result
 
                 flattened_result_sim = self.flatten_result_for_parquet(result_simulation)
@@ -699,6 +719,8 @@ class ReconstructionWorker:
                     result_gt = result.copy()
                     result_gt['phs_lam_source'] = 'ground_truth'
                     result_gt['phs_q_source'] = 'ground_truth'
+                    # Create unique reconstruction_id including parameter source
+                    result_gt['reconstruction_id'] = f"{base_reconstruction_id}_gt_params"
                     # cPHS represents the primary simulation-based metric
                     # The cPHS_gt value is still available in the cPHS_gt column
                     logger.info(f"Ground truth row: cPHS={result_gt['cPHS']:.6f} (simulation), cPHS_gt={result_gt['cPHS_gt']:.6f} (ground truth)")

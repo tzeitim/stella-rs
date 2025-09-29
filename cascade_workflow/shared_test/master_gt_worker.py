@@ -277,7 +277,6 @@ class MasterGTWorker:
             '-J', f'cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_analysis',
             '-oo', f"{self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.out",
             '-eo', f"{self.shared_dir.resolve()}/logs/cas9_instance{instance_id}_sim{cas9_simulation_id}_tier{tier}_%J.err",
-            '-W', '0:30',  # 30 minutes
             '-n', '15', '-R', 'span[hosts=1]',
             '-R', 'rusage[mem=1.5GB]',
             'python', str(Path(__file__).parent / 'cas9_recording_worker.py'),
