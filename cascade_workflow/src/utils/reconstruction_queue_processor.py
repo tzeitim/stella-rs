@@ -35,6 +35,9 @@ class ReconstructionQueueProcessor:
         self.processed_file = self.shared_dir / "reconstruction_queue_processed.jsonl"
         self.failed_file = self.shared_dir / "reconstruction_queue_failed.jsonl"
 
+        # Load configuration
+        self.config = self.load_config()
+
         # Use provided throttling config or create default
         if throttling_config is None:
             throttling_config = ThrottlingConfig(
@@ -43,10 +46,47 @@ class ReconstructionQueueProcessor:
                 batch_size=10
             )
 
-        self.throttler = JobThrottler(throttling_config, shared_dir)
+        self.throttler = JobThrottler(throttling_config, self.shared_dir)
+
+        # Update dynamic throttling config file with command-line values
+        self._update_throttling_config_file(throttling_config)
 
         # Ensure directories exist
         self.shared_dir.mkdir(parents=True, exist_ok=True)
+
+    def load_config(self) -> Dict[str, Any]:
+        """Load configuration from cascade_config.yaml."""
+        import yaml
+        config_path = self.shared_dir / "cascade_config.yaml"
+        try:
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f)
+        except Exception as e:
+            logger.warning(f"Could not load config {config_path}: {e}")
+            return {}
+
+    def _update_throttling_config_file(self, throttling_config: ThrottlingConfig) -> None:
+        """Update the dynamic throttling config file with command-line values."""
+        import yaml
+
+        throttling_file = self.shared_dir / "throttling_config.yaml"
+
+        try:
+            config_data = {
+                'throttling': throttling_config.to_dict(),
+                'metadata': {
+                    'last_updated': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'updated_by': f'reconstruction_queue_processor.py (PID: {os.getpid()})',
+                    'description': 'Dynamic throttling configuration - values set from command-line args'
+                }
+            }
+
+            with open(throttling_file, 'w') as f:
+                yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+
+            logger.info(f"Updated throttling config file with command-line values: {throttling_file}")
+        except Exception as e:
+            logger.warning(f"Failed to update throttling config file: {e}")
 
     def load_queue(self) -> List[Dict[str, Any]]:
         """Load all queued jobs from the queue file."""
@@ -76,20 +116,56 @@ class ReconstructionQueueProcessor:
             return []
 
     def should_submit_job(self, job: Dict[str, Any]) -> bool:
-        """Check if a job should be submitted (not already processed)."""
+        """Check if a job should be submitted (not already processed).
 
-        # Check if result already exists
+        Checks multiple sources to avoid duplicate submissions:
+        1. Processed jobs file
+        2. Partitioned results (parquet files)
+        3. Legacy JSON results files
+        4. Cas9 instance file existence
+        """
+
+        # Check if job was already submitted (in processed file)
+        if hasattr(self, '_processed_jobs'):
+            job_key = (job['cas9_instance_path'], job['solver'], job['tier'], job['instance_id'], job['cas9_simulation_id'])
+            if job_key in self._processed_jobs:
+                logger.debug(f"Job already processed: {job['solver']} for instance {job['instance_id']}_sim{job['cas9_simulation_id']}")
+                return False
+
+        # Check if result already exists in partitioned results (primary storage)
+        shared_dir = Path(job['shared_dir'])
+        partitioned_dir = shared_dir / "partitioned_results" / f"cas9_tier={job['tier']}" / f"solver={job['solver']}"
+
+        if partitioned_dir.exists():
+            # Check parquet files for this result
+            import polars as pl
+            try:
+                parquet_files = list(partitioned_dir.glob("*.parquet"))
+                if parquet_files:
+                    df = pl.scan_parquet(str(partitioned_dir / "*.parquet")).collect()
+                    # Check for exact match on instance_id and cas9_simulation_id
+                    matches = df.filter(
+                        (pl.col('gt_instance_id') == job['instance_id']) &
+                        (pl.col('cas9_simulation_id') == job['cas9_simulation_id'])
+                    )
+                    if len(matches) > 0:
+                        logger.debug(f"Result already exists in partitioned storage: {job['solver']} for "
+                                   f"instance {job['instance_id']}_sim{job['cas9_simulation_id']}")
+                        return False
+            except Exception as e:
+                logger.debug(f"Could not check partitioned results: {e}")
+
+        # Check if result already exists in legacy JSON format
         cas9_instance_path = Path(job['cas9_instance_path'])
         solver = job['solver']
         instance_name = cas9_instance_path.stem
 
-        # Look for existing result files
-        results_dir = Path(job['shared_dir']) / "results"
+        results_dir = shared_dir / "results"
         result_pattern = f"{instance_name}_*_{solver}_metrics.json"
 
         existing_results = list(results_dir.glob(result_pattern))
         if existing_results:
-            logger.debug(f"Result already exists for {instance_name} {solver}: {existing_results[0]}")
+            logger.debug(f"Result already exists (legacy): {instance_name} {solver}: {existing_results[0]}")
             return False
 
         # Check if cas9 instance file exists
@@ -99,27 +175,61 @@ class ReconstructionQueueProcessor:
 
         return True
 
+    def load_processed_jobs(self) -> set:
+        """Load set of already processed jobs."""
+        processed_jobs = set()
+
+        if self.processed_file.exists():
+            try:
+                with open(self.processed_file, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            job = json.loads(line)
+                            job_key = (job['cas9_instance_path'], job['solver'], job['tier'], job['instance_id'], job['cas9_simulation_id'])
+                            processed_jobs.add(job_key)
+                        except json.JSONDecodeError:
+                            continue
+            except Exception as e:
+                logger.warning(f"Could not load processed jobs: {e}")
+
+        logger.info(f"Loaded {len(processed_jobs)} previously processed jobs")
+        return processed_jobs
+
     def submit_reconstruction_job(self, job: Dict[str, Any]) -> Optional[str]:
         """Submit a single reconstruction job."""
 
         def _do_submit():
             """Internal function to perform the actual submission."""
 
-            # Build bsub command
+            # Get LSF configuration for reconstruction jobs
+            lsf_config = self.config.get('lsf', {})
+            reconstruction_queue = lsf_config.get('queues', {}).get('reconstruction', 'short')
+            recon_resources = lsf_config.get('resources', {}).get('reconstruction', {})
+
+            cores = recon_resources.get('cores', 50)
+            memory_gb = recon_resources.get('memory_gb', 1.5)
+
+            # Build bsub command with configuration values
             cmd = [
                 'bsub',
-                '-J', f"queued_reconstruct_{job['solver']}_{job['instance_id']}_{int(time.time())}",
-                '-oo', f"{job['shared_dir']}/logs/queued_{job['solver']}_tier{job['tier']}_%J.out",
-                '-eo', f"{job['shared_dir']}/logs/queued_{job['solver']}_tier{job['tier']}_%J.err",
-                '-q', 'short',
-                '-n', '3', '-R', 'span[hosts=1]',
-                '-R', 'rusage[mem=2GB]',
+                '-J', f"reconstruct_instance{job['instance_id']}_sim{job['cas9_simulation_id']}_recon0_tier{job['tier']}_{job['solver']}",
+                '-oo', f"{job['shared_dir']}/logs/reconstruct_instance{job['instance_id']}_sim{job['cas9_simulation_id']}_recon0_tier{job['tier']}_{job['solver']}_%J.out",
+                '-eo', f"{job['shared_dir']}/logs/reconstruct_instance{job['instance_id']}_sim{job['cas9_simulation_id']}_recon0_tier{job['tier']}_{job['solver']}_%J.err",
+                '-q', reconstruction_queue,
+                '-n', str(cores), '-R', 'span[hosts=1]',
+                '-R', f'rusage[mem={memory_gb}GB]',
                 'python', f"{job['shared_dir']}/reconstruction_worker.py",
                 '--cas9_instance_path', job['cas9_instance_path'],
                 '--solver', job['solver'],
                 '--tier', str(job['tier']),
                 '--output_dir', job['output_dir'],
-                '--shared_dir', job['shared_dir']
+                '--shared_dir', job['shared_dir'],
+                '--gt_instance_id', str(job['instance_id']),
+                '--cas9_simulation_id', str(job['cas9_simulation_id']),
+                '--reconstruction_id', '0'
             ]
 
             # Submit job
@@ -176,23 +286,27 @@ class ReconstructionQueueProcessor:
             logger.info("No jobs in queue")
             return
 
-        processed_count = 0
+        # Load previously processed jobs to avoid duplicates
+        self._processed_jobs = self.load_processed_jobs()
+
+        examined_count = 0
         submitted_count = 0
         skipped_count = 0
         failed_count = 0
 
         for job in jobs:
-            if max_jobs and processed_count >= max_jobs:
-                logger.info(f"Reached maximum job limit ({max_jobs})")
-                break
-
-            processed_count += 1
+            examined_count += 1
 
             # Check if we should submit this job
             if not self.should_submit_job(job):
-                logger.info(f"Skipping job {processed_count}: {job['solver']} for {Path(job['cas9_instance_path']).stem} (already exists or invalid)")
+                logger.info(f"Skipping job {examined_count}: {job['solver']} for {Path(job['cas9_instance_path']).stem} (already exists or invalid)")
                 skipped_count += 1
                 continue
+
+            # Check max_jobs limit only for jobs we actually need to process
+            if max_jobs and submitted_count + failed_count >= max_jobs:
+                logger.info(f"Reached maximum job submission limit ({max_jobs})")
+                break
 
             if dry_run:
                 logger.info(f"DRY RUN: Would submit {job['solver']} for {Path(job['cas9_instance_path']).stem}")
@@ -208,7 +322,7 @@ class ReconstructionQueueProcessor:
                 self.mark_job_processed(job, None, 'failed')
                 failed_count += 1
 
-        logger.info(f"Queue processing complete: {processed_count} processed, {submitted_count} submitted, {skipped_count} skipped, {failed_count} failed")
+        logger.info(f"Queue processing complete: {examined_count} examined, {submitted_count} submitted, {skipped_count} skipped, {failed_count} failed")
 
     def cleanup_queue(self) -> None:
         """Remove processed jobs from the queue file."""

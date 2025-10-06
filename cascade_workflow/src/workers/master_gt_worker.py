@@ -300,28 +300,35 @@ class MasterGTWorker:
         """Generate multiple ground truth trees based on num_gt_instances."""
         num_instances = self.config.get('execution', {}).get('num_gt_instances', 1)
         logger.info(f"Generating {num_instances} ground truth tree instances...")
-        
+
         gt_tree_paths = []
-        
+
         for instance_id in range(num_instances):
             instance_start = time.time()
+
+            # Configure output paths
+            config_shared_dir = self.config.get('output', {}).get('shared_dir', str(self.shared_dir))
+            gt_output_dir = Path(config_shared_dir) / "gt_trees"
+            gt_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create instance-specific filename
+            gt_tree_path = gt_output_dir / f"gt_tree_instance_{instance_id}.pkl"
+
+            # Check if GT tree already exists (caching)
+            if gt_tree_path.exists():
+                logger.info(f"GT instance {instance_id} already exists at {gt_tree_path}, reusing it")
+                gt_tree_paths.append(gt_tree_path)
+                continue
+
             logger.info(f"Generating GT instance {instance_id + 1}/{num_instances}...")
 
             try:
                 gt_tree = generate_ground_truth_tree(self.config)
-                
-                # Save GT tree to configured directory
-                config_shared_dir = self.config.get('output', {}).get('shared_dir', str(self.shared_dir))
-                gt_output_dir = Path(config_shared_dir) / "gt_trees"
-                gt_output_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Create instance-specific filename
-                gt_tree_path = gt_output_dir / f"gt_tree_instance_{instance_id}.pkl"
-                
+
                 # Save the GT tree
                 with open(gt_tree_path, 'wb') as f:
                     pickle.dump(gt_tree, f)
-                    
+
                 instance_time = time.time() - instance_start
                 logger.info(f"GT tree instance {instance_id} saved to: {gt_tree_path}")
                 logger.info(f"GT instance {instance_id + 1} completed in {instance_time:.1f} seconds")

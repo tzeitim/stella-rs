@@ -242,11 +242,24 @@ class Cas9RecordingWorker:
     def apply_cas9_recording(self):
         """Apply Cas9 recording to the GT tree for this tier."""
         logger.info(f"Applying Cas9 recording for Tier {self.tier}...")
-        
+
         try:
+            # Configure output path
+            config_shared_dir = self.config.get('output', {}).get('shared_dir', str(self.shared_dir))
+            cas9_instances_dir = Path(config_shared_dir) / "cas9_instances"
+            cas9_instances_dir.mkdir(parents=True, exist_ok=True)
+            self.cas9_instance_path = cas9_instances_dir / f"instance{self.instance_id}_sim{self.cas9_simulation_id}_tier{self.tier}_instance.pkl"
+
+            # Check if CAS9 instance already exists (caching)
+            if self.cas9_instance_path.exists():
+                logger.info(f"CAS9 instance already exists at {self.cas9_instance_path}, reusing it")
+                with open(self.cas9_instance_path, 'rb') as f:
+                    cas9_tree = pickle.load(f)
+                return cas9_tree
+
             # Load GT tree
             gt_tree = self.load_gt_tree()
-            
+
             # Get tier configuration from config
             tier_config_dict = self.config.get('cas9_tiers', {}).get(self.tier, {})
             if not tier_config_dict:
@@ -258,21 +271,17 @@ class Cas9RecordingWorker:
 
             logger.info(f"Tier config: {tier_config.name}")
             logger.info(f"Recording sites: {tier_config.k * tier_config.cassette_size}")
-            
+
             # Generate mutation rates for the tier
             tier_config.mutation_rates = tier_config.generate_mutation_rates()
 
             # Apply Cas9 recording with config for missing data parameters
             cas9_tree = apply_cas9_recording_to_tree(gt_tree, tier_config, self.tier, self.config)
-            
-            # Save Cas9 instance to configured directory with proper indexing
-            config_shared_dir = self.config.get('output', {}).get('shared_dir', str(self.shared_dir))
-            cas9_instances_dir = Path(config_shared_dir) / "cas9_instances"
-            cas9_instances_dir.mkdir(parents=True, exist_ok=True)
-            self.cas9_instance_path = cas9_instances_dir / f"instance{self.instance_id}_sim{self.cas9_simulation_id}_tier{self.tier}_instance.pkl"
+
+            # Save Cas9 instance
             with open(self.cas9_instance_path, 'wb') as f:
                 pickle.dump(cas9_tree, f)
-                
+
             logger.info(f"Cas9 instance saved to: {self.cas9_instance_path}")
             
             # Update status
@@ -337,7 +346,10 @@ class Cas9RecordingWorker:
         # })
 
     def queue_reconstruction_job(self, solver: str) -> None:
-        """Add reconstruction job to submission queue instead of submitting immediately."""
+        """Add reconstruction job to submission queue instead of submitting immediately.
+
+        Includes deduplication to prevent the same job from being queued multiple times.
+        """
 
         job_spec = {
             'cas9_instance_path': str(self.cas9_instance_path),
@@ -351,17 +363,55 @@ class Cas9RecordingWorker:
             'status': 'queued'
         }
 
+        # Create unique job key for deduplication
+        job_key = (self.instance_id, self.cas9_simulation_id, self.tier, solver)
+
         # Write to queue file
         queue_file = self.shared_dir / "reconstruction_queue.jsonl"
 
         # Ensure directory exists
         queue_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # Append to queue (thread-safe single line write)
-        with open(queue_file, 'a') as f:
-            f.write(json.dumps(job_spec) + '\n')
+        # Check for duplicates and append to queue with file locking
+        import fcntl
+        with open(queue_file, 'a+') as f:
+            try:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)  # Exclusive lock
 
-        logger.info(f"Queued {solver} reconstruction job for tier {self.tier} instance {self.instance_id}")
+                # Read existing queue to check for duplicates
+                f.seek(0)
+                existing_jobs = set()
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        existing_job = json.loads(line)
+                        existing_key = (
+                            existing_job.get('instance_id'),
+                            existing_job.get('cas9_simulation_id'),
+                            existing_job.get('tier'),
+                            existing_job.get('solver')
+                        )
+                        existing_jobs.add(existing_key)
+                    except json.JSONDecodeError:
+                        continue
+
+                # Only add if not already queued
+                if job_key in existing_jobs:
+                    logger.info(f"Skipping duplicate: {solver} reconstruction for tier {self.tier} "
+                               f"instance {self.instance_id} sim {self.cas9_simulation_id} already queued")
+                    return
+
+                # Append new job to queue
+                f.seek(0, 2)  # Move to end of file
+                f.write(json.dumps(job_spec) + '\n')
+                f.flush()
+                logger.info(f"Queued {solver} reconstruction job for tier {self.tier} "
+                           f"instance {self.instance_id} sim {self.cas9_simulation_id}")
+
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)  # Release lock
 
     def submit_reconstruction_job(self, solver: str) -> str:
         """Submit LSF job for a specific solver reconstruction with throttling."""
@@ -420,10 +470,25 @@ class Cas9RecordingWorker:
         for recon_id in range(reconstructions_per_solver):
             # Use throttling to submit the job
             job_id = self.throttler.submit_with_throttling(_do_submit, 'reconstruction', recon_id)
+
+            # CRITICAL FIX: If throttling fails (returns None), queue the job instead of skipping
             if job_id:
                 submitted_job_ids.append(job_id)
+            else:
+                # Throttler timed out - queue this job for later processing
+                logger.warning(f"Throttler failed to get slot for {solver} recon {recon_id}, "
+                              f"falling back to queue-based submission")
 
-        return ','.join(submitted_job_ids)  # Return all job IDs
+                # Queue the job for processing by reconstruction_queue_processor
+                if self.queue_based_submission:
+                    # Already in queue mode, shouldn't happen but log it
+                    logger.error(f"Already in queue mode but job wasn't queued - this is a bug!")
+                else:
+                    # Switch to queue mode for this specific job
+                    self.queue_reconstruction_job(solver)
+                    logger.info(f"Queued {solver} reconstruction job for later processing")
+
+        return ','.join(submitted_job_ids) if submitted_job_ids else 'queued'  # Return job IDs or 'queued'
     
     def update_status(self, level: str, component: str, status: str, details: Any = None) -> None:
         """Update job status in shared status file."""

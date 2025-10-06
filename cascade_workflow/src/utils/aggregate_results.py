@@ -29,8 +29,9 @@ def aggregate_existing_results(results_dir: Path, output_path: Path, batch_size:
     )
     
     # Check if this looks like partitioned results directory structure
-    if any((results_dir / f"cas9_tier={i}").exists() for i in range(1, 10)):
-        logger.info("Detected partitioned results structure, using '*.parquet' pattern")
+    partitioned_dirs = list(results_dir.glob("cas9_tier=*"))
+    if partitioned_dirs:
+        logger.info(f"Detected partitioned results structure with {len(partitioned_dirs)} tiers, using '*.parquet' pattern")
         file_pattern = "*.parquet"
     else:
         logger.info("Using default '*_metrics.parquet' pattern")

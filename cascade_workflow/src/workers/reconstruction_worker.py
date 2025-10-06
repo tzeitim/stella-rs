@@ -456,12 +456,14 @@ def reconstruct_and_calculate_metrics(cas9_tree, solver_name: str, tier_num: int
         # Store reconstructed tree for later analysis
         try:
 
-            # Determine output directory
-            if config and 'execution' in config and 'output_dir' in config['execution']:
+            # Determine output directory - use shared_dir to keep trees experiment-specific
+            if config and 'output' in config and 'shared_dir' in config['output']:
+                output_base = config['output']['shared_dir']
+            elif config and 'execution' in config and 'output_dir' in config['execution']:
                 output_base = os.path.dirname(config['execution']['output_dir'])
             else:
-                # Fallback to current working directory
-                output_base = '.'
+                # Fallback to shared_dir passed to worker (always experiment-specific)
+                output_base = str(self.shared_dir)
 
             reconstructed_trees_dir = os.path.join(output_base, 'reconstructed_trees')
             os.makedirs(reconstructed_trees_dir, exist_ok=True)
