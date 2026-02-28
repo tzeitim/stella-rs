@@ -1,62 +1,50 @@
-cas9_tiers:
-  8:
-    base_mutation_rate: 1.2
-    cassette_size: 10
-    description: 'Missing data test: stochastic 0.0%, heritable 7.5%'
-    k: 10
-    m: 50
-    mutation_rate_pattern: uniform
-    name: Heritable 7.5%
-    state_priors_exponent: 1e-4
-    stochastic_silencing_rate: 0.0
-    heritable_silencing_rate: 0.075
 debug:
   save_debug_info: true
   test_mode: false
   verbose_logging: true
 analysis:
-  reconstruction_seed: 8000
+  reconstruction_seed: 1000
   triplets_trials: 1000
   min_branch_length: 1e-8
   branch_length_fraction: 0.01
   min_branch_length_floor: 1e-10
 execution:
-  cas9_simulations_per_gt: 10
+  cas9_simulations_per_gt: 20
   conda_environment: cas11
-  num_gt_instances: 10
+  num_gt_instances: 3
   parallel_execution: true
   random_seed: 42
-  run_name: heritable_03
+  run_name: both_24
 ground_truth:
   instance_seeds: []
   tree_config:
-    N: 8000
+    N: 1000
     fitness:
       fitness_base: 1.0
       fitness_std: 0.0
       initial_birth_scale: 2
-    n: 1200
+    n: 250
 lsf:
   queues:
-    cas9_recording: short
-    master_gt: short
-    reconstruction: short
+    cas9_recording: gsla-cpu
+    master_gt: gsla-cpu
+    reconstruction: long
   resources:
     cas9_recording:
-      cores: 50
-      memory_gb: 1.5
+      cores: 5
+      memory_gb: 10.5
     master_gt:
-      cores: 50
-      memory_gb: 1.5
+      cores: 5
+      memory_gb: 10.5
     reconstruction:
       cores: 50
       memory_gb: 1.5
   throttling:
-    batch_size: 5
-    check_interval: 30
+    batch_size: 50
+    check_interval: 60
     job_submission_delay: 2.0
-    max_concurrent_cas9_jobs: 50
-    max_concurrent_reconstruction_jobs: 50
+    max_concurrent_cas9_jobs: 20
+    max_concurrent_reconstruction_jobs: 1000
 monitoring:
   check_interval: 120
   continuous_monitoring: true
@@ -64,30 +52,41 @@ monitoring:
   notifications:
     enabled: false
 output:
-  cas9_prefix: cas9_heritable_03
+  cas9_prefix: cas9_gt1000_missing
   compare_across_tiers: true
   generate_plots: false
-  gt_prefix: gt_heritable_03
-  result_prefix: result_heritable_03
+  gt_prefix: gt1000_missing
+  result_prefix: result_gt1000_missing
   save_detailed_metrics: true
   save_intermediate_trees: true
-  shared_dir: /home/projects/nyosef/pedro/src/stella-rs/output/pilot/heritable_03
+  shared_dir: /home/projects/nyosef/pedro/src/stella-rs/output/both_24
 solvers:
   disabled:
   - dmj
-  - vanilla
   - ilp
   enabled:
   - nj
   - greedy
-  - spectral
   - maxcut
+  - maxcut_greedy
+  - spectral
+  - spectral_greedy
   - smj
   reconstructions_per_solver: 1
   solver_params:
     greedy:
       max_iterations: 3000
-    maxcut:
-      time_limit: 900
     nj:
       add_root: true
+cas9_tiers:
+  25:
+    name: Mixed 10%H+7.5%S
+    description: 500 sites, 10% heritable + 7.5% stochastic (total 17.5%)
+    k: 50
+    cassette_size: 10
+    m: 20
+    base_mutation_rate: 1.5
+    mutation_rate_pattern: exponential_decay
+    state_priors_exponent: 1e-5
+    heritable_silencing_rate: 0.1
+    stochastic_silencing_rate: 0.075

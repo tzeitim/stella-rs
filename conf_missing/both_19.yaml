@@ -14,7 +14,7 @@ execution:
   num_gt_instances: 3
   parallel_execution: true
   random_seed: 42
-  run_name: stochastic_03
+  run_name: both_19
 ground_truth:
   instance_seeds: []
   tree_config:
@@ -59,7 +59,7 @@ output:
   result_prefix: result_gt1000_missing
   save_detailed_metrics: true
   save_intermediate_trees: true
-  shared_dir: /home/projects/nyosef/pedro/src/stella-rs/output/stochastic_03
+  shared_dir: /home/projects/nyosef/pedro/src/stella-rs/output/both_19
 solvers:
   disabled:
   - dmj
@@ -79,14 +79,14 @@ solvers:
     nj:
       add_root: true
 cas9_tiers:
-  4:
-    name: Stochastic 7.5%
-    description: 200 sites, 7.5% stochastic dropout
+  20:
+    name: Mixed 2.5%H+10%S
+    description: 200 sites, 2.5% heritable + 10% stochastic
     k: 50
     cassette_size: 10
     m: 20
     base_mutation_rate: 1.5
     mutation_rate_pattern: exponential_decay
     state_priors_exponent: 1e-5
-    heritable_silencing_rate: 0.0
-    stochastic_silencing_rate: 0.075
+    heritable_silencing_rate: 0.025
+    stochastic_silencing_rate: 0.1
